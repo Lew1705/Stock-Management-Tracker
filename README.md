@@ -49,13 +49,13 @@ This is the lowest-risk option because the app already depends on SQLite and loc
 
 ## Railway quick start
 
-This repo now includes a Railway-friendly `Dockerfile` and a small runner module at `python -m stock.railway_runner`.
+This repo now includes a Railway-friendly `Dockerfile` and a small web trigger at `python -m stock.web`.
 
 Suggested Railway variables:
 
 ```text
-STOCK_TASK=dashboard
 STOCK_TIMEZONE=Europe/London
+STOCK_WEB_TOKEN=choose-a-shared-secret
 STOCK_SHEET_ID=your-google-sheet-id
 GOOGLE_SERVICE_ACCOUNT_JSON={...full service account json...}
 ```

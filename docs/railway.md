@@ -6,27 +6,23 @@ Use Railway with:
 
 - one persistent volume
 - this repo deployed from GitHub
-- Google Sheets as the staff-facing workflow
+- a tiny protected web page for manual runs
 
 This is the cheapest and fastest way to get the stock tracker off your laptop without rebuilding the app first.
 
-## What the Railway runner does
+## What the web app does
 
 The deploy command is:
 
 ```text
-python -m stock.railway_runner
+python -m stock.web
 ```
 
-It supports these tasks through the `STOCK_TASK` variable:
+It serves a simple page where staff can:
 
-- `dashboard`
-- `export-sheets`
-- `run-day`
-- `import-little-shop-count`
-- `import-keele-count`
-
-`run-day` and the import tasks use `STOCK_RUN_DATE` if set, otherwise they use today's date in `STOCK_TIMEZONE`.
+- choose the run date
+- enter a shared access code
+- manually trigger the daily workflow
 
 ## Railway variables
 
@@ -34,20 +30,9 @@ Set these in Railway:
 
 ```text
 STOCK_TIMEZONE=Europe/London
+STOCK_WEB_TOKEN=choose-a-shared-secret
 STOCK_SHEET_ID=your-google-sheet-id
 GOOGLE_SERVICE_ACCOUNT_JSON={paste the full Google service account JSON here}
-```
-
-For each Railway service, also set:
-
-```text
-STOCK_TASK=export-sheets
-```
-
-or:
-
-```text
-STOCK_TASK=run-day
 ```
 
 ## Volume
@@ -64,37 +49,7 @@ as the database path when `STOCK_DB_PATH` is not set.
 
 ## Suggested service layout
 
-Use two Railway services from the same repo:
-
-1. `stock-export-sheets`
-2. `stock-run-day`
-
-Suggested variables:
-
-For `stock-export-sheets`:
-
-```text
-STOCK_TASK=export-sheets
-```
-
-For `stock-run-day`:
-
-```text
-STOCK_TASK=run-day
-```
-
-Mount the same volume on both services so they share the same `stock.db`.
-
-## Cron suggestions
-
-Because Railway cron runs in UTC, set schedules carefully for UK time.
-
-Examples:
-
-- morning export: `0 8 * * *`
-- end-of-day processing: `0 18 * * *`
-
-Check whether British Summer Time is active when choosing the final UTC schedule.
+Use one Railway service from this repo with one mounted volume.
 
 ## First deployment
 
@@ -102,9 +57,9 @@ Check whether British Summer Time is active when choosing the final UTC schedule
 2. Create a new Railway project from the repo.
 3. Add a volume and mount it.
 4. Add the shared variables.
-5. Deploy one service with `STOCK_TASK=export-sheets`.
-6. Deploy a second service with `STOCK_TASK=run-day`.
-7. Add cron schedules in Railway.
+5. Redeploy.
+6. Open the service URL in a browser.
+7. Run the workflow manually from the page.
 
 ## Moving your existing database
 
@@ -124,12 +79,13 @@ If you do not want to keep `stock.db` in the repo long term, you can remove it a
 
 ## Important limitation
 
-This still is not a browser app.
+This is a very small internal tool page, not a full staff portal.
 
 The practical workflow is:
 
 - staff fill in Google Sheets
-- Railway runs the stock logic
+- staff open the Railway-hosted page
+- staff click the button to run the stock logic
 - the SQLite database lives on the Railway volume
 
-If you later want staff to use a proper app directly, the next step is a web UI plus Postgres.
+If you later want a fuller multi-user app, the next step is a richer web UI plus Postgres.

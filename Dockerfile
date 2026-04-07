@@ -9,6 +9,6 @@ COPY . .
 
 ENV PYTHONPATH=/app/src
 ENV STOCK_TIMEZONE=Europe/London
-ENV STOCK_TASK=dashboard
+ENV PORT=8080
 
-CMD ["python", "-m", "stock.railway_runner"]
+CMD ["python", "-m", "stock.web"]
