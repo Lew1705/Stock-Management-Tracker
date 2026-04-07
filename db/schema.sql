@@ -114,3 +114,16 @@ CREATE TABLE IF NOT EXISTS suppliers(
     name TEXT UNIQUE NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS run_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_type TEXT NOT NULL,
+    run_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('SUCCESS', 'FAILED')),
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT,
+    output TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS ix_run_history_started_at
+ON run_history(started_at DESC);
+

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, Response, request
 
 from .cli import cmd_run_day
-from .db import init_db, seed_locations
+from .db import init_db, recent_run_history, record_run_history, seed_locations
 
 
 app = Flask(__name__)
@@ -121,6 +121,42 @@ def _page(body: str, status_code: int = 200) -> Response:
       white-space: pre-wrap;
       word-break: break-word;
     }}
+    .history {{
+      margin-top: 28px;
+      border-top: 1px solid var(--line);
+      padding-top: 20px;
+    }}
+    .history-list {{
+      display: grid;
+      gap: 12px;
+    }}
+    .history-item {{
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.55);
+    }}
+    .status {{
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }}
+    .status-success {{
+      background: #dff3e8;
+      color: #176646;
+    }}
+    .status-failed {{
+      background: #fde7e3;
+      color: #9a2d21;
+    }}
+    .history-meta {{
+      margin: 0 0 8px;
+      color: #5b5045;
+      font-size: 0.95rem;
+    }}
   </style>
 </head>
 <body>
@@ -135,6 +171,21 @@ def _page(body: str, status_code: int = 200) -> Response:
 @app.get("/")
 def index() -> Response:
     today = escape(_today())
+    history = recent_run_history(limit=8)
+    history_html = "".join(
+        f"""
+        <article class="history-item">
+          <div class="status {'status-success' if row['status'] == 'SUCCESS' else 'status-failed'}">{escape(row['status'])}</div>
+          <p class="history-meta">
+            {escape(row['run_type'])} for {escape(row['run_date'])}
+            <br>
+            Finished: {escape(row['finished_at'] or row['started_at'])}
+          </p>
+          <pre>{escape((row['output'] or '').strip() or 'No output recorded.')}</pre>
+        </article>
+        """
+        for row in history
+    ) or "<p class='meta'>No runs recorded yet.</p>"
     return _page(
         f"""
         <h1>Stock Tracker Runner</h1>
@@ -151,6 +202,12 @@ def index() -> Response:
           </div>
           <button type="submit">Run Daily Sync</button>
         </form>
+        <section class="history">
+          <h1 style="font-size:2rem; margin-bottom:12px;">Recent Runs</h1>
+          <div class="history-list">
+            {history_html}
+          </div>
+        </section>
         """
     )
 
@@ -194,7 +251,9 @@ def run_day() -> Response:
         _bootstrap()
         with redirect_stdout(output):
             cmd_run_day(argparse.Namespace(date=run_date))
-        rendered = escape(output.getvalue() or "Run completed.")
+        raw_output = output.getvalue() or "Run completed."
+        record_run_history("run-day", run_date, "SUCCESS", raw_output)
+        rendered = escape(raw_output)
         return _page(
             f"""
             <h1>Run complete</h1>
@@ -204,7 +263,9 @@ def run_day() -> Response:
             """
         )
     except Exception:
-        rendered = escape(output.getvalue() + "\n" + traceback.format_exc())
+        raw_output = output.getvalue() + "\n" + traceback.format_exc()
+        record_run_history("run-day", run_date, "FAILED", raw_output)
+        rendered = escape(raw_output)
         return _page(
             f"""
             <h1>Run failed</h1>

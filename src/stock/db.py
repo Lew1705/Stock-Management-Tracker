@@ -35,6 +35,31 @@ def seed_locations() -> None:
         conn.execute("INSERT OR IGNORE INTO locations (name) VALUES (?);", ("Keele",))
         conn.execute("INSERT OR IGNORE INTO locations (name) VALUES (?);", ("Little Shop",))
 
+
+def record_run_history(run_type: str, run_date: str, status: str, output: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO run_history (run_type, run_date, status, finished_at, output)
+            VALUES (?, ?, ?, datetime('now'), ?);
+            """,
+            (run_type, run_date, status, output),
+        )
+        return int(cur.lastrowid)
+
+
+def recent_run_history(limit: int = 10):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, run_type, run_date, status, started_at, finished_at, output
+            FROM run_history
+            ORDER BY datetime(started_at) DESC, id DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        ).fetchall()
+
 def list_locations() -> None:
     with get_conn() as conn:
         rows = conn.execute("SELECT id, name FROM locations ORDER BY id;").fetchall()
