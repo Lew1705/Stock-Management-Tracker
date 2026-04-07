@@ -10,6 +10,8 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+src/creds.json
+creds.json
 
 # Editors / OS
 .vscode/
