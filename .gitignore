@@ -10,6 +10,7 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+!stock.db
 src/creds.json
 creds.json
 

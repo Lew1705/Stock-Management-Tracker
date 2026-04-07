@@ -106,6 +106,22 @@ Check whether British Summer Time is active when choosing the final UTC schedule
 6. Deploy a second service with `STOCK_TASK=run-day`.
 7. Add cron schedules in Railway.
 
+## Moving your existing database
+
+If you already have a working local `stock.db`, the repo can carry it for a one-time bootstrap.
+
+On first boot, the Railway runner will copy `/app/stock.db` into the mounted volume if the volume database does not exist yet.
+
+That means the quickest migration path is:
+
+1. commit your current `stock.db`
+2. push to GitHub
+3. redeploy Railway once
+
+After the first successful copy, Railway will keep using the volume copy.
+
+If you do not want to keep `stock.db` in the repo long term, you can remove it again after the Railway volume is populated.
+
 ## Important limitation
 
 This still is not a browser app.

@@ -1,6 +1,8 @@
 import argparse
+import shutil
 import os
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .cli import (
@@ -9,7 +11,7 @@ from .cli import (
     cmd_import_count_sheet,
     cmd_run_day,
 )
-from .db import init_db, seed_locations
+from .db import DB_PATH, PROJECT_ROOT, init_db, seed_locations
 
 
 def _today() -> str:
@@ -22,6 +24,12 @@ def _date_arg() -> str:
 
 
 def _bootstrap() -> None:
+    bundled_db = PROJECT_ROOT / "stock.db"
+    if not DB_PATH.exists() and bundled_db.exists() and bundled_db.resolve() != DB_PATH.resolve():
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundled_db, DB_PATH)
+        print(f"Copied bundled database into {DB_PATH}")
+
     init_db()
     seed_locations()
 
