@@ -4,6 +4,7 @@ from pathlib import Path
 import argparse
 
 from .db import (
+    VALID_BASE_UNITS,
     init_db,
     seed_locations,
     insert_item,
@@ -841,7 +842,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("add-item", help="Add an item")
     sp.add_argument("--name", required=True)
     sp.add_argument("--category", required=True)
-    sp.add_argument("--base-unit", required=True, choices=["each", "g", "ml"])
+    sp.add_argument(
+        "--base-unit",
+        required=True,
+        help="Examples: each, g, ml, pack, tray, roll, bundle, pack of 6, pack of 18, tray of 30",
+    )
     sp.set_defaults(func=cmd_add_item)
 
     # receive

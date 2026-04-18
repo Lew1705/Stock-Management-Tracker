@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Items | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Inventory foundation</p>
+    <h2>Items and categories</h2>
+    <p>
+      This is the first real management page in the app. Right now it is read-only, which is perfect for learning:
+      we can see the data model on screen before we add create/edit forms.
+    </p>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Items</div>
+      <div class="metric-value">{{ item_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Categories</div>
+      <div class="metric-value">{{ category_count }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">First editable inventory screen</p>
+    <h2>Inventory by category</h2>
+    <div class="actions-row">
+      <a class="button-link primary" href="/items/new">Add a new item</a>
+    </div>
+
+    {% if grouped_items %}
+      <div class="category-list">
+        {% for category, rows in grouped_items.items() %}
+          <article class="category-card">
+            <h3 style="margin:0 0 6px;">{{ category }}</h3>
+            <p class="eyebrow">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Unit</th>
+                  <th>Suppliers</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr>
+                    <td>{{ row["name"] }}</td>
+                    <td>{{ row["base_unit"] }}</td>
+                    <td>{{ row["suppliers"] or "Not set yet" }}</td>
+                    <td><a href="/items/{{ row['id'] }}/edit">Edit</a></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        No items found yet.
+        <br>
+        <a href="/items/new">Create your first item</a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -48,3 +48,75 @@ def get_spreadsheet():
 def get_sheet(tab_name: str):
     ss = get_spreadsheet()
     return ss.worksheet(tab_name)
+
+
+def clear_row_groups(sheet) -> None:
+    metadata = sheet.spreadsheet.fetch_sheet_metadata()
+    target = None
+
+    for sheet_meta in metadata.get("sheets", []):
+        props = sheet_meta.get("properties", {})
+        if props.get("sheetId") == sheet.id:
+            target = sheet_meta
+            break
+
+    if target is None:
+        return
+
+    requests = []
+    for group in reversed(target.get("rowGroups", [])):
+        group_range = group.get("range", {})
+        requests.append(
+            {
+                "deleteDimensionGroup": {
+                    "range": {
+                        "sheetId": sheet.id,
+                        "dimension": "ROWS",
+                        "startIndex": group_range.get("startIndex", 0),
+                        "endIndex": group_range.get("endIndex", 0),
+                    }
+                }
+            }
+        )
+
+    if requests:
+        sheet.spreadsheet.batch_update({"requests": requests})
+
+
+def apply_collapsible_row_groups(sheet, row_groups: list[tuple[int, int]]) -> None:
+    if not row_groups:
+        return
+
+    requests = []
+    for start_index, end_index in row_groups:
+        requests.append(
+            {
+                "addDimensionGroup": {
+                    "range": {
+                        "sheetId": sheet.id,
+                        "dimension": "ROWS",
+                        "startIndex": start_index,
+                        "endIndex": end_index,
+                    }
+                }
+            }
+        )
+        requests.append(
+            {
+                "updateDimensionGroup": {
+                    "dimensionGroup": {
+                        "range": {
+                            "sheetId": sheet.id,
+                            "dimension": "ROWS",
+                            "startIndex": start_index,
+                            "endIndex": end_index,
+                        },
+                        "depth": 1,
+                        "collapsed": True,
+                    },
+                    "fields": "collapsed,depth",
+                }
+            }
+        )
+
+    sheet.spreadsheet.batch_update({"requests": requests})

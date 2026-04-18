@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Shopping Lists | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Supplier ordering for Keele</p>
+    <h2>Keele shopping list</h2>
+    <p>
+      This list shows what needs ordering from suppliers for Keele after accounting for what Keele
+      needs to send over to Little Shop to get Little Shop back to par.
+    </p>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Ordering location</div>
+      <div class="metric-value" style="font-size: 1.35rem;">Keele</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Count date</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ count_date }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Items to buy</div>
+      <div class="metric-value">{{ total_items }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Total shortfall</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_order_qty) }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Generate from the saved counts</p>
+    <h2>Choose the date</h2>
+
+    <form method="get" action="/shopping-lists" class="form-grid">
+      <label for="date">
+        Count date
+        <input id="date" name="date" type="date" value="{{ count_date }}" required>
+      </label>
+
+      <button type="submit">Load shopping list</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Generated from saved counts and par levels</p>
+    <h2>Supplier shopping list</h2>
+
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/counts?location=Keele&date={{ count_date }}">Back to Keele count</a>
+      <a class="button-link" href="/request-lists?date={{ count_date }}">View Little Shop request list</a>
+    </div>
+
+    {% if grouped_rows %}
+      <div class="category-list">
+        {% for category, rows in grouped_rows.items() %}
+          <article class="category-card">
+            <h3 style="margin:0 0 6px;">{{ category }}</h3>
+            <p class="eyebrow">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Keele counted</th>
+                  <th>Keele par</th>
+                  <th>Little Shop needs</th>
+                  <th>Order</th>
+                  <th>Unit</th>
+                  <th>Suppliers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr>
+                    <td>{{ row["name"] }}</td>
+                    <td>{{ '%.2f'|format(row["source_counted_qty"]) }}</td>
+                    <td>{{ '%.2f'|format(row["source_par_qty"]) }}</td>
+                    <td>{{ '%.2f'|format(row["request_qty"]) }}</td>
+                    <td><strong>{{ '%.2f'|format(row["order_qty"]) }}</strong></td>
+                    <td>{{ row["base_unit"] }}</td>
+                    <td>{{ row["supplier"] or "Not set yet" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        Nothing needs ordering for Keele on this date, or the saved counts are missing.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

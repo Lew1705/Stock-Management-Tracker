@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}{{ form_title }} | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Inventory editing</p>
+    <h2>{{ form_title }}</h2>
+    <p>{{ form_intro }}</p>
+  </section>
+
+  <section class="panel">
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/items">Back to items</a>
+    </div>
+
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ form_action }}" class="form-grid">
+      <label for="name">
+        Item name
+        <input id="name" name="name" type="text" value="{{ item_values['name'] }}" required>
+      </label>
+
+      <label for="category">
+        Category
+        <input id="category" name="category" type="text" value="{{ item_values['category'] }}" required>
+      </label>
+
+      <label for="base-unit">
+        Base unit
+        <input id="base-unit" name="base_unit" type="text" list="base-unit-options" value="{{ item_values['base_unit'] }}" required>
+        <datalist id="base-unit-options">
+          {% for unit in base_units %}
+            <option value="{{ unit }}"></option>
+          {% endfor %}
+        </datalist>
+        <div class="field-help">Examples: `each`, `pack`, `pack of 6`, `tray of 30`, `roll`, `bundle`.</div>
+      </label>
+
+      <label for="supplier">
+        Suppliers
+        <input id="supplier" name="supplier" type="text" value="{{ item_values['supplier'] }}">
+        <div class="field-help">Use `;` to separate multiple suppliers, for example `Booker; Morrisons`.</div>
+      </label>
+
+      <label for="ref">
+        Supplier refs
+        <input id="ref" name="ref" type="text" value="{{ item_values['ref'] }}">
+        <div class="field-help">Optional. Use the same order as the suppliers field, for example `BK-001; MR-002`.</div>
+      </label>
+
+      <button type="submit">{{ submit_label }}</button>
+    </form>
+  </section>
+{% endblock %}

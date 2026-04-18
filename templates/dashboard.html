@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Phase 2, Step 1</p>
+    <h2>We now have a real app shell to build on.</h2>
+    <p>
+      This dashboard is the new home for the stock system. It keeps your current daily workflow available,
+      while giving us proper pages and navigation for the next features.
+    </p>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Items in database</div>
+      <div class="metric-value">{{ item_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Categories</div>
+      <div class="metric-value">{{ category_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Recent runs shown</div>
+      <div class="metric-value">{{ run_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Today</div>
+      <div class="metric-value" style="font-size: 1.25rem;">{{ today }}</div>
+    </article>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <p class="eyebrow">Current workflow</p>
+      <h2>Run daily sync</h2>
+      <p>Keep your existing count-import and ordering flow working while we build the rest of the app.</p>
+
+      <form method="post" action="/run-day" class="form-grid">
+        <label for="run-date">
+          Run date
+          <input id="run-date" name="run_date" type="date" value="{{ today }}" required>
+        </label>
+        <label for="token">
+          Access code
+          <input id="token" name="token" type="password" required>
+        </label>
+        <button type="submit">Run Daily Workflow</button>
+      </form>
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Next learning step</p>
+      <h2>Inventory page is live</h2>
+      <p>
+        You can already browse the imported items in a proper app page. That will be the base for an add/edit item screen next.
+      </p>
+      <div class="empty-state" style="margin-top:18px;">
+        View <a href="/items">Items</a> to see the first real management screen.
+        <br>
+        Timezone: {{ timezone_name }}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Recent workflow history</p>
+    <h2>Recent runs</h2>
+    {% if history %}
+      <div class="history-list">
+        {% for row in history %}
+          <article class="history-item">
+            <div class="status {% if row['status'] == 'SUCCESS' %}status-success{% else %}status-failed{% endif %}">
+              {{ row["status"] }}
+            </div>
+            <p class="history-meta">
+              {{ row["run_type"] }} for {{ row["run_date"] }}<br>
+              Finished: {{ row["finished_at"] or row["started_at"] }}
+            </p>
+            <pre>{{ (row["output"] or "").strip() or "No output recorded." }}</pre>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">No runs recorded yet.</div>
+    {% endif %}
+  </section>
+{% endblock %}

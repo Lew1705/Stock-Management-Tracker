@@ -1,8 +1,9 @@
 import os
 import sqlite3
+import re
 from pathlib import Path
 import csv
-from .sheets import get_spreadsheet, get_sheet
+from .sheets import get_spreadsheet, get_sheet, clear_row_groups, apply_collapsible_row_groups
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,21 @@ DEFAULT_DB_PATH = (
 DB_PATH = Path(os.environ.get("STOCK_DB_PATH", str(DEFAULT_DB_PATH))).expanduser().resolve()
 SCHEMA_PATH = PROJECT_ROOT / "db" / "schema.sql"
 
+VALID_BASE_UNITS = (
+    "each",
+    "g",
+    "ml",
+    "pack",
+    "tray",
+    "roll",
+    "bundle",
+    "pack of 5",
+    "pack of 6",
+    "pack of 12",
+    "pack of 14",
+    "pack of 24",
+)
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -22,11 +38,157 @@ def get_conn():
     return conn
 
 
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table_name});").fetchall()
+    return any(str(row["name"]) == column_name for row in rows)
+
+
+def _run_schema_migrations(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS suppliers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        );
+    """)
+
+    if not _column_exists(conn, "items", "supplier_id"):
+        conn.execute("ALTER TABLE items ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id);")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS item_suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            ref_number TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(item_id, supplier_id),
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+        );
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_item_suppliers_item_sort
+        ON item_suppliers(item_id, sort_order, supplier_id);
+    """)
+
+    # Backfill the new link table from older single-supplier rows.
+    conn.execute("""
+        INSERT OR IGNORE INTO item_suppliers (item_id, supplier_id, sort_order)
+        SELECT id, supplier_id, 0
+        FROM items
+        WHERE supplier_id IS NOT NULL;
+    """)
+
+
+def normalize_base_unit(raw_value: str) -> str:
+    value = " ".join((raw_value or "").strip().lower().split())
+    if not value:
+        raise ValueError("base_unit is required")
+
+    if value in VALID_BASE_UNITS:
+        return value
+
+    match = re.fullmatch(r"(pack|tray)(?:\s+of)?\s+(\d+)", value)
+    if match:
+        unit_type = match.group(1)
+        normalized = f"{unit_type} of {int(match.group(2))}"
+        return normalized
+
+    raise ValueError(
+        "base_unit must be one of the standard units "
+        + ", ".join(VALID_BASE_UNITS)
+        + ", or a measured package like 'pack of 18' or 'tray of 30'"
+    )
+
+
+def _split_multi_value(raw_value: str) -> list[str]:
+    value = (raw_value or "").strip()
+    if not value:
+        return []
+    return [part.strip() for part in re.split(r"\s*[|;,]\s*", value) if part.strip()]
+
+
+def _parse_supplier_links(raw_suppliers: str, raw_refs: str) -> list[tuple[str, str]]:
+    suppliers = _split_multi_value(raw_suppliers)
+    refs = _split_multi_value(raw_refs)
+
+    if not suppliers:
+        return []
+
+    if not refs:
+        refs = [""] * len(suppliers)
+    elif len(refs) == 1 and len(suppliers) > 1:
+        refs = refs * len(suppliers)
+    elif len(refs) != len(suppliers):
+        raise ValueError(
+            "reference values must either be blank, a single shared value, or match the supplier count"
+        )
+
+    return list(zip(suppliers, refs))
+
+
+def _sync_item_suppliers(cur: sqlite3.Cursor, item_id: int, supplier_links: list[tuple[str, str]]) -> int | None:
+    cur.execute("DELETE FROM item_suppliers WHERE item_id = ?", (item_id,))
+
+    first_supplier_id = None
+
+    for sort_order, (supplier_name, ref_number) in enumerate(supplier_links):
+        cur.execute("""
+            INSERT INTO suppliers (name)
+            VALUES (?)
+            ON CONFLICT(name) DO NOTHING
+        """, (supplier_name,))
+
+        cur.execute("SELECT id FROM suppliers WHERE name = ?", (supplier_name,))
+        supplier_row = cur.fetchone()
+        if supplier_row is None:
+            raise ValueError(f"Could not resolve supplier '{supplier_name}'")
+
+        supplier_id = int(supplier_row["id"])
+        if first_supplier_id is None:
+            first_supplier_id = supplier_id
+
+        cur.execute("""
+            INSERT INTO item_suppliers (item_id, supplier_id, ref_number, sort_order)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(item_id, supplier_id)
+            DO UPDATE SET
+                ref_number = excluded.ref_number,
+                sort_order = excluded.sort_order
+        """, (item_id, supplier_id, ref_number, sort_order))
+
+    return first_supplier_id
+
+
+def get_item_supplier_summary(item_id: int) -> str:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.name, isp.ref_number
+            FROM item_suppliers isp
+            JOIN suppliers s ON s.id = isp.supplier_id
+            WHERE isp.item_id = ?
+            ORDER BY isp.sort_order, s.name;
+            """,
+            (item_id,),
+        ).fetchall()
+
+    if not rows:
+        return "Unknown"
+
+    labels = []
+    for row in rows:
+        ref = (row["ref_number"] or "").strip()
+        labels.append(f"{row['name']} ({ref})" if ref else str(row["name"]))
+    return ", ".join(labels)
+
+
 
 def init_db():
     with get_conn() as conn:
         schema = SCHEMA_PATH.read_text()
         conn.executescript(schema)
+        _run_schema_migrations(conn)
     
 
 
@@ -69,6 +231,7 @@ def list_locations() -> None:
 
 
 def insert_item(name: str, category: str, base_unit: str) -> None:
+    normalized_unit = normalize_base_unit(base_unit)
     with get_conn() as conn:
         conn.execute("""
         
@@ -76,7 +239,7 @@ def insert_item(name: str, category: str, base_unit: str) -> None:
         VALUES (?, ?, ?)
                      
         """,
-        (name, category, base_unit),
+        (name, category, normalized_unit),
     )
 
 def list_items():
@@ -95,6 +258,381 @@ def list_items():
         print(f"{r['id']:>3} | {r['name']:<25} | {r['category']:<15} | {r['base_unit']}")
 
     conn.close()
+
+
+def get_items_with_suppliers():
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT
+                i.id,
+                i.name,
+                i.category,
+                i.base_unit,
+                COALESCE(
+                    GROUP_CONCAT(
+                        CASE
+                            WHEN COALESCE(isp.ref_number, '') = '' THEN s.name
+                            ELSE s.name || ' (' || isp.ref_number || ')'
+                        END,
+                        ' | '
+                    ),
+                    ''
+                ) AS suppliers
+            FROM items i
+            LEFT JOIN item_suppliers isp ON isp.item_id = i.id
+            LEFT JOIN suppliers s ON s.id = isp.supplier_id
+            GROUP BY i.id, i.name, i.category, i.base_unit
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """
+        ).fetchall()
+
+
+def get_count_entry_rows(location: str, count_date: str):
+    location_id = get_location_id(location)
+
+    with get_conn() as conn:
+        count_row = conn.execute(
+            """
+            SELECT id, is_reconciled
+            FROM stock_counts
+            WHERE location_id = ? AND count_date = ?
+            ORDER BY datetime(created_at) DESC
+            LIMIT 1;
+            """,
+            (location_id, count_date),
+        ).fetchone()
+
+        count_id = int(count_row["id"]) if count_row else None
+        is_reconciled = bool(count_row["is_reconciled"]) if count_row else False
+
+        rows = conn.execute(
+            """
+            SELECT
+                i.id,
+                i.name,
+                i.category,
+                i.base_unit,
+                scl.counted_qty_base AS counted_qty
+            FROM items i
+            LEFT JOIN stock_count_lines scl
+                ON scl.item_id = i.id
+               AND scl.count_id = ?
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """,
+            (count_id,),
+        ).fetchall()
+
+    result = []
+    for row in rows:
+        item_name = str(row["name"])
+        result.append(
+            {
+                "id": int(row["id"]),
+                "name": item_name,
+                "category": str(row["category"]),
+                "base_unit": str(row["base_unit"]),
+                "counted_qty": "" if row["counted_qty"] is None else str(row["counted_qty"]),
+                "current_stock": current_stock(location, item_name),
+            }
+        )
+
+    return {
+        "count_id": count_id,
+        "is_reconciled": is_reconciled,
+        "rows": result,
+    }
+
+
+def save_web_count(location: str, count_date: str, count_values: dict[int, str]) -> int:
+    count_id = get_or_create_count(location, count_date)
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT is_reconciled FROM stock_counts WHERE id = ?;",
+            (count_id,),
+        ).fetchone()
+        if row is not None and int(row["is_reconciled"]) == 1:
+            raise ValueError("This count has already been reconciled and cannot be edited.")
+
+    clear_count_lines(count_id)
+
+    for item_id, raw_value in count_values.items():
+        text = (raw_value or "").strip()
+        if text == "":
+            continue
+        try:
+            qty = float(text)
+        except ValueError as exc:
+            item = get_item_by_id(item_id)
+            raise ValueError(f"'{text}' is not a valid number for {item['name']}.") from exc
+        if qty < 0:
+            item = get_item_by_id(item_id)
+            raise ValueError(f"Count for {item['name']} cannot be negative.")
+        add_count_line_by_item_id(count_id, item_id, qty)
+
+    return count_id
+
+
+def generate_shopping_list(location_name: str, as_of_date: str):
+    init_db()
+    location_id = get_location_id(location_name)
+
+    with get_conn() as conn:
+        par_rows = conn.execute(
+            """
+            SELECT
+                i.id AS item_id,
+                i.name,
+                i.category,
+                i.base_unit,
+                p.par_qty_base
+            FROM par_levels p
+            JOIN items i ON i.id = p.item_id
+            WHERE p.location_id = ?
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """,
+            (location_id,),
+        ).fetchall()
+
+    results = []
+    for row in par_rows:
+        item_id = int(row["item_id"])
+        par_qty = float(row["par_qty_base"] or 0)
+        counted_qty = latest_count_qty(location_name, item_id, as_of_date)
+        shortfall = max(par_qty - counted_qty, 0.0)
+
+        if shortfall <= 1e-9:
+            continue
+
+        results.append(
+            {
+                "item_id": item_id,
+                "name": str(row["name"]),
+                "category": str(row["category"]),
+                "base_unit": str(row["base_unit"]),
+                "counted_qty": counted_qty,
+                "par_qty": par_qty,
+                "order_qty": shortfall,
+                "supplier": get_item_supplier_summary(item_id),
+            }
+        )
+
+    return results
+
+
+def generate_request_list(location_name: str, as_of_date: str, source_location_name: str = "Keele"):
+    init_db()
+    location_id = get_location_id(location_name)
+
+    with get_conn() as conn:
+        par_rows = conn.execute(
+            """
+            SELECT
+                i.id AS item_id,
+                i.name,
+                i.category,
+                i.base_unit,
+                p.par_qty_base
+            FROM par_levels p
+            JOIN items i ON i.id = p.item_id
+            WHERE p.location_id = ?
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """,
+            (location_id,),
+        ).fetchall()
+
+    results = []
+    for row in par_rows:
+        item_id = int(row["item_id"])
+        par_qty = float(row["par_qty_base"] or 0)
+        counted_qty = latest_count_qty(location_name, item_id, as_of_date)
+        request_qty = max(par_qty - counted_qty, 0.0)
+
+        if request_qty <= 1e-9:
+            continue
+
+        source_qty = latest_count_qty(source_location_name, item_id, as_of_date)
+        fulfill_qty = min(request_qty, source_qty)
+        source_shortfall = max(request_qty - source_qty, 0.0)
+
+        results.append(
+            {
+                "item_id": item_id,
+                "name": str(row["name"]),
+                "category": str(row["category"]),
+                "base_unit": str(row["base_unit"]),
+                "counted_qty": counted_qty,
+                "par_qty": par_qty,
+                "request_qty": request_qty,
+                "source_location": source_location_name,
+                "source_available_qty": source_qty,
+                "fulfill_qty": fulfill_qty,
+                "source_shortfall": source_shortfall,
+                "supplier": get_item_supplier_summary(item_id),
+            }
+        )
+
+    return results
+
+
+def generate_supplier_shopping_list(as_of_date: str, source_location_name: str = "Keele", request_location_name: str = "Little Shop"):
+    init_db()
+    source_location_id = get_location_id(source_location_name)
+    request_location_id = get_location_id(request_location_name)
+
+    with get_conn() as conn:
+        source_par_rows = conn.execute(
+            """
+            SELECT
+                i.id AS item_id,
+                i.name,
+                i.category,
+                i.base_unit,
+                p.par_qty_base
+            FROM par_levels p
+            JOIN items i ON i.id = p.item_id
+            WHERE p.location_id = ?
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """,
+            (source_location_id,),
+        ).fetchall()
+
+        request_par_map = {
+            int(row["item_id"]): float(row["par_qty_base"] or 0)
+            for row in conn.execute(
+                """
+                SELECT item_id, par_qty_base
+                FROM par_levels
+                WHERE location_id = ?;
+                """,
+                (request_location_id,),
+            ).fetchall()
+        }
+
+    results = []
+    for row in source_par_rows:
+        item_id = int(row["item_id"])
+        source_par_qty = float(row["par_qty_base"] or 0)
+        source_counted_qty = latest_count_qty(source_location_name, item_id, as_of_date)
+        request_par_qty = float(request_par_map.get(item_id, 0.0))
+        request_counted_qty = latest_count_qty(request_location_name, item_id, as_of_date)
+        request_qty = max(request_par_qty - request_counted_qty, 0.0)
+        fulfill_qty = min(request_qty, source_counted_qty)
+        projected_source_qty = source_counted_qty - fulfill_qty
+        order_qty = max(source_par_qty - projected_source_qty, 0.0)
+
+        if order_qty <= 1e-9:
+            continue
+
+        results.append(
+            {
+                "item_id": item_id,
+                "name": str(row["name"]),
+                "category": str(row["category"]),
+                "base_unit": str(row["base_unit"]),
+                "source_counted_qty": source_counted_qty,
+                "source_par_qty": source_par_qty,
+                "request_location": request_location_name,
+                "request_counted_qty": request_counted_qty,
+                "request_par_qty": request_par_qty,
+                "request_qty": request_qty,
+                "fulfill_qty": fulfill_qty,
+                "projected_source_qty": projected_source_qty,
+                "order_qty": order_qty,
+                "supplier": get_item_supplier_summary(item_id),
+            }
+        )
+
+    return results
+
+
+def get_item_for_edit(item_id: int):
+    with get_conn() as conn:
+        item = conn.execute(
+            """
+            SELECT id, name, category, base_unit
+            FROM items
+            WHERE id = ?;
+            """,
+            (item_id,),
+        ).fetchone()
+
+        if item is None:
+            raise ValueError(f"Unknown item_id: {item_id}")
+
+        supplier_rows = conn.execute(
+            """
+            SELECT s.name, isp.ref_number
+            FROM item_suppliers isp
+            JOIN suppliers s ON s.id = isp.supplier_id
+            WHERE isp.item_id = ?
+            ORDER BY isp.sort_order, s.name;
+            """,
+            (item_id,),
+        ).fetchall()
+
+    supplier_names = [str(row["name"]) for row in supplier_rows]
+    refs = [str(row["ref_number"] or "") for row in supplier_rows]
+
+    return {
+        "id": int(item["id"]),
+        "name": str(item["name"]),
+        "category": str(item["category"]),
+        "base_unit": str(item["base_unit"]),
+        "supplier": "; ".join(supplier_names),
+        "ref": "; ".join(refs),
+    }
+
+
+def save_item(item_id: int | None, name: str, category: str, base_unit: str, supplier_text: str, ref_text: str) -> int:
+    normalized_name = " ".join((name or "").strip().split())
+    normalized_category = " ".join((category or "").strip().split())
+
+    if not normalized_name:
+        raise ValueError("Item name is required.")
+    if not normalized_category:
+        raise ValueError("Category is required.")
+
+    normalized_unit = normalize_base_unit(base_unit)
+    supplier_links = _parse_supplier_links(supplier_text, ref_text)
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        try:
+            if item_id is None:
+                cur.execute(
+                    """
+                    INSERT INTO items (name, category, base_unit, supplier_id)
+                    VALUES (?, ?, ?, NULL);
+                    """,
+                    (normalized_name, normalized_category, normalized_unit),
+                )
+                saved_item_id = int(cur.lastrowid)
+            else:
+                cur.execute(
+                    """
+                    UPDATE items
+                    SET name = ?, category = ?, base_unit = ?, supplier_id = NULL
+                    WHERE id = ?;
+                    """,
+                    (normalized_name, normalized_category, normalized_unit, int(item_id)),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"Unknown item_id: {item_id}")
+                saved_item_id = int(item_id)
+
+            primary_supplier_id = _sync_item_suppliers(cur, saved_item_id, supplier_links)
+            cur.execute(
+                "UPDATE items SET supplier_id = ? WHERE id = ?",
+                (primary_supplier_id, saved_item_id),
+            )
+            conn.commit()
+            return saved_item_id
+        except sqlite3.IntegrityError as exc:
+            if "items.name" in str(exc).lower() or "unique" in str(exc).lower():
+                raise ValueError(f"An item named '{normalized_name}' already exists.") from exc
+            raise
 
 
 def get_location_id(name: str) -> int:
@@ -1063,20 +1601,18 @@ def generate_supplier_order(request_location_name="Little Shop", source_location
     request_location_id = req_loc["id"]
     source_location_id = src_loc["id"]
 
-    # get Keele par levels + supplier
+    # get Keele par levels
     cur.execute("""
         SELECT
             i.id AS item_id,
             i.name,
             i.category,
             i.base_unit,
-            p.par_qty_base,
-            s.name AS supplier
+            p.par_qty_base
         FROM par_levels p
         JOIN items i ON i.id = p.item_id
-        LEFT JOIN suppliers s ON s.id = i.supplier_id
         WHERE p.location_id = ?
-        ORDER BY s.name, i.id
+        ORDER BY i.name, i.id
     """, (source_location_id,))
     keele_par_rows = cur.fetchall()
 
@@ -1122,8 +1658,9 @@ def generate_supplier_order(request_location_name="Little Shop", source_location
         supplier_order_qty = max(keele_par_qty - projected_keele_stock, 0)
 
         if supplier_order_qty > 0:
+            supplier_summary = get_item_supplier_summary(item_id)
             results.append({
-                "supplier": row["supplier"] or "Unknown",
+                "supplier": supplier_summary,
                 "item_id": item_id,
                 "name": row["name"],
                 "category": row["category"],
@@ -1278,43 +1815,82 @@ def import_items_and_par_levels(csv_path):
     cur.execute("SELECT id FROM locations WHERE name = 'Keele'")
     keele_id = cur.fetchone()["id"]
 
-    with open(csv_path, newline="") as f:
+    imported_rows = 0
+    skipped_rows = 0
+
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
 
-        for row in reader:
+        raw_headers = reader.fieldnames or []
+        normalized_headers = {"_".join((header or "").strip().lower().split()) for header in raw_headers}
+        required_headers = {"item_name", "category", "base_unit", "par_little_shop", "par_keele", "supplier"}
+        if not required_headers.issubset(normalized_headers):
+            raise ValueError(
+                "CSV must contain headers: item_name, category, base_unit, par_little_shop, par_keele, supplier"
+            )
 
-            name = row["item_name"].strip()
-            category = row["category"].strip()
-            base_unit = row["base_unit"].strip()
-            supplier_name = row["supplier"].strip()
+        for line_no, row in enumerate(reader, start=2):
+            normalized_row = {
+                "_".join((key or "").strip().lower().split()): (value or "").strip()
+                for key, value in row.items()
+            }
 
-            # create supplier if it doesn't exist
-            cur.execute("""
-                INSERT INTO suppliers (name)
-                VALUES (?)
-                ON CONFLICT(name) DO NOTHING
-            """, (supplier_name,))
+            name = normalized_row.get("item_name", "")
+            category = normalized_row.get("category", "")
+            base_unit_raw = normalized_row.get("base_unit", "")
+            supplier_name = normalized_row.get("supplier", "")
+            reference_raw = (
+                normalized_row.get("ref")
+                or normalized_row.get("reference")
+                or normalized_row.get("reference_number")
+                or normalized_row.get("supplier_ref")
+                or ""
+            )
+            little_par_raw = normalized_row.get("par_little_shop", "")
+            keele_par_raw = normalized_row.get("par_keele", "")
 
-            # get supplier id
-            cur.execute("SELECT id FROM suppliers WHERE name = ?", (supplier_name,))
-            supplier_id = cur.fetchone()["id"]
+            # Ignore fully blank/spacer rows from Sheets exports.
+            if not any([name, category, base_unit_raw, supplier_name, reference_raw, little_par_raw, keele_par_raw]):
+                skipped_rows += 1
+                continue
 
-            # create or update item
+            if not name:
+                raise ValueError(f"Line {line_no}: item_name is required")
+            if not category:
+                raise ValueError(f"Line {line_no}: category is required for '{name}'")
+            if not base_unit_raw:
+                raise ValueError(f"Line {line_no}: base_unit is required for '{name}'")
+            try:
+                base_unit = normalize_base_unit(base_unit_raw)
+            except ValueError as exc:
+                raise ValueError(f"Line {line_no}: {exc} for '{name}'") from exc
+
             cur.execute("""
                 INSERT INTO items (name, category, base_unit, supplier_id)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(name)
-                DO UPDATE SET supplier_id = excluded.supplier_id
-            """, (name, category, base_unit, supplier_id))
+                DO UPDATE SET
+                    category = excluded.category,
+                    base_unit = excluded.base_unit,
+                    supplier_id = excluded.supplier_id
+            """, (name, category, base_unit, None))
 
-            # get item id
             cur.execute("SELECT id FROM items WHERE name = ?", (name,))
             item_id = cur.fetchone()["id"]
 
-            # little shop par
-            if row["par_little_shop"]:
-                par = float(row["par_little_shop"])
+            try:
+                supplier_links = _parse_supplier_links(supplier_name, reference_raw)
+            except ValueError as exc:
+                raise ValueError(f"Line {line_no}: {exc} for '{name}'") from exc
 
+            primary_supplier_id = _sync_item_suppliers(cur, item_id, supplier_links)
+            cur.execute(
+                "UPDATE items SET supplier_id = ? WHERE id = ?",
+                (primary_supplier_id, item_id),
+            )
+
+            if little_par_raw:
+                par = float(little_par_raw)
                 cur.execute("""
                     INSERT INTO par_levels (item_id, location_id, par_qty_base)
                     VALUES (?, ?, ?)
@@ -1322,10 +1898,8 @@ def import_items_and_par_levels(csv_path):
                     DO UPDATE SET par_qty_base = excluded.par_qty_base
                 """, (item_id, little_shop_id, par))
 
-            # keele par
-            if row["par_keele"]:
-                par = float(row["par_keele"])
-
+            if keele_par_raw:
+                par = float(keele_par_raw)
                 cur.execute("""
                     INSERT INTO par_levels (item_id, location_id, par_qty_base)
                     VALUES (?, ?, ?)
@@ -1333,10 +1907,14 @@ def import_items_and_par_levels(csv_path):
                     DO UPDATE SET par_qty_base = excluded.par_qty_base
                 """, (item_id, keele_id, par))
 
+            imported_rows += 1
+
     conn.commit()
     conn.close()
 
-    print("Items, suppliers and par levels imported successfully.")
+    print(f"Imported {imported_rows} item rows.")
+    if skipped_rows:
+        print(f"Skipped {skipped_rows} blank rows.")
 
 
 def generate_request_from_par(location_name):
@@ -1533,17 +2111,49 @@ def export_count_to_sheet(location: str):
     sheet = get_sheet(f"{location} Count")
     items = get_items()
 
-    data = [["Item Name", "Unit", "Counted Qty"]]
+    data = [["Category", "Item Name", "Unit", "Counted Qty"]]
+    row_groups: list[tuple[int, int]] = []
 
-    for item in items:
+    items_sorted = sorted(
+        items,
+        key=lambda item: (
+            str(item["category"]).strip().lower(),
+            str(item["name"]).strip().lower(),
+        ),
+    )
+
+    current_category = None
+    current_group_start = None
+
+    for item in items_sorted:
+        category = str(item["category"]).strip()
+
+        if category != current_category:
+            if current_group_start is not None:
+                row_groups.append((current_group_start, len(data)))
+
+            if current_category is not None:
+                data.append(["", "", "", ""])
+
+            # Category header row. Item name stays blank so imports ignore it.
+            data.append([category, "", "", ""])
+            current_category = category
+            current_group_start = len(data)
+
         data.append([
+            category,
             item["name"],
             item["base_unit"],
             "",
         ])
 
+    if current_group_start is not None:
+        row_groups.append((current_group_start, len(data)))
+
     sheet.clear()
     sheet.update("A1", data)
+    clear_row_groups(sheet)
+    apply_collapsible_row_groups(sheet, row_groups)
     print(f"{location} count sheet updated successfully.")
 
 def import_count_from_sheet(location: str, count_date: str):

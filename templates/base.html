@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Stock Tracker{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: rgba(255, 251, 244, 0.92);
+      --ink: #1f1a16;
+      --muted: #6f6255;
+      --line: #d9cbbb;
+      --accent: #1f6f5f;
+      --accent-soft: #d8efe8;
+      --warn: #fff0df;
+      --danger: #a93b24;
+      --success: #176646;
+      --shadow: 0 24px 70px rgba(70, 51, 31, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(235, 183, 117, 0.5) 0, transparent 28%),
+        radial-gradient(circle at bottom right, rgba(62, 145, 123, 0.18) 0, transparent 24%),
+        linear-gradient(180deg, #f8f3ec 0%, var(--bg) 100%);
+      font-family: Georgia, "Times New Roman", serif;
+      min-height: 100vh;
+    }
+
+    a { color: inherit; }
+
+    .app-shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 24px auto 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 24px;
+      border: 1px solid rgba(255,255,255,0.45);
+      border-radius: 24px;
+      background: rgba(255, 249, 240, 0.8);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      line-height: 1;
+    }
+
+    .brand p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .nav a {
+      text-decoration: none;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.65);
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .nav a.active {
+      background: linear-gradient(135deg, var(--accent), #2b9d86);
+      color: white;
+      border-color: transparent;
+    }
+
+    .content {
+      margin-top: 20px;
+      display: grid;
+      gap: 20px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.58);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px;
+    }
+
+    .hero h2,
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      line-height: 1.05;
+    }
+
+    .hero p,
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+
+    .metric {
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid var(--line);
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 2rem;
+      font-weight: 700;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+    }
+
+    .panel {
+      padding: 24px;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    input,
+    select,
+    button {
+      width: 100%;
+      font: inherit;
+      border-radius: 14px;
+    }
+
+    input,
+    select {
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.95);
+    }
+
+    button {
+      padding: 14px 16px;
+      border: 0;
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #2b9d86);
+    }
+
+    .history-list,
+    .category-list,
+    .actions-row {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .actions-row {
+      grid-template-columns: repeat(auto-fit, minmax(180px, max-content));
+      align-items: center;
+    }
+
+    .history-item,
+    .category-card {
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.62);
+    }
+
+    .count-category {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.66);
+    }
+
+    .count-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .count-row {
+      display: grid;
+      grid-template-columns: minmax(200px, 1.3fr) 120px 130px 140px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(217, 203, 187, 0.7);
+    }
+
+    .count-row:last-child {
+      border-bottom: 0;
+    }
+
+    .count-row input {
+      margin: 0;
+    }
+
+    .count-item-name {
+      font-weight: 700;
+    }
+
+    .count-subtle {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .status-success { background: #dff3e8; color: var(--success); }
+    .status-failed,
+    .status-error { background: #fde7e3; color: var(--danger); }
+    .status-warning { background: var(--warn); color: #8b4a16; }
+
+    .history-meta,
+    .eyebrow {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    pre {
+      margin: 14px 0 0;
+      padding: 16px;
+      background: #1f1a16;
+      color: #f3eee8;
+      border-radius: 16px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 0.98rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .empty-state {
+      padding: 16px;
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+      color: var(--muted);
+      margin-top: 16px;
+    }
+
+    .button-link {
+      display: inline-block;
+      text-decoration: none;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-weight: 700;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.78);
+    }
+
+    .button-link.primary {
+      color: white;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), #2b9d86);
+    }
+
+    .field-help {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+
+    .error-box {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid #f0c39a;
+      background: var(--warn);
+      color: #8b4a16;
+      font-weight: 700;
+    }
+
+    .success-box {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid #bfe2d3;
+      background: #e7f6ee;
+      color: var(--success);
+      font-weight: 700;
+    }
+
+    @media (max-width: 860px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+
+      .count-row {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Stock Tracker</h1>
+        <p>First app shell for counts, items, and daily stock workflow.</p>
+      </div>
+      <nav class="nav">
+        <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="/items" class="{% if active_page == 'items' %}active{% endif %}">Items</a>
+        <a href="/counts" class="{% if active_page == 'counts' %}active{% endif %}">Counts</a>
+        <a href="/shopping-lists" class="{% if active_page == 'shopping_lists' %}active{% endif %}">Shopping Lists</a>
+        <a href="/request-lists" class="{% if active_page == 'request_lists' %}active{% endif %}">Request Lists</a>
+      </nav>
+    </header>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

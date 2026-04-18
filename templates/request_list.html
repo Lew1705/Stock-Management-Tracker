@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Request Lists | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Take stock over to Little Shop</p>
+    <h2>Little Shop request list</h2>
+    <p>
+      This list shows what needs taking round to Little Shop to get it back to par,
+      using the latest saved counts for Little Shop and Keele.
+    </p>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Destination</div>
+      <div class="metric-value" style="font-size: 1.35rem;">Little Shop</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Pick from</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ source_location }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Requested qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_request_qty) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Can fulfill now</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_fulfill_qty) }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Generate from the saved counts</p>
+    <h2>Choose the date</h2>
+
+    <form method="get" action="/request-lists" class="form-grid">
+      <label for="date">
+        Count date
+        <input id="date" name="date" type="date" value="{{ count_date }}" required>
+      </label>
+
+      <button type="submit">Load request list</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Generated from saved counts and par levels</p>
+    <h2>Take to Little Shop</h2>
+
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/counts?location=Little+Shop&date={{ count_date }}">Back to Little Shop count</a>
+      <a class="button-link" href="/shopping-lists?date={{ count_date }}">View supplier shopping list</a>
+    </div>
+
+    {% if grouped_rows %}
+      <div class="category-list">
+        {% for category, rows in grouped_rows.items() %}
+          <article class="category-card">
+            <h3 style="margin:0 0 6px;">{{ category }}</h3>
+            <p class="eyebrow">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Little Shop counted</th>
+                  <th>Par</th>
+                  <th>Take over</th>
+                  <th>{{ source_location }} stock</th>
+                  <th>Can take now</th>
+                  <th>Still short</th>
+                  <th>Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr>
+                    <td>{{ row["name"] }}</td>
+                    <td>{{ '%.2f'|format(row["counted_qty"]) }}</td>
+                    <td>{{ '%.2f'|format(row["par_qty"]) }}</td>
+                    <td><strong>{{ '%.2f'|format(row["request_qty"]) }}</strong></td>
+                    <td>{{ '%.2f'|format(row["source_available_qty"]) }}</td>
+                    <td>{{ '%.2f'|format(row["fulfill_qty"]) }}</td>
+                    <td>{{ '%.2f'|format(row["source_shortfall"]) }}</td>
+                    <td>{{ row["base_unit"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        Little Shop is already at par for this date, or the saved counts are missing.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

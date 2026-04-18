@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Daily workflow</p>
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+  </section>
+
+  <section class="panel">
+    <div class="status status-{{ status }}">{{ status|upper }}</div>
+    <p class="history-meta">Run date: {{ run_date }}</p>
+    {% if output %}
+      <pre>{{ output }}</pre>
+    {% else %}
+      <div class="empty-state">No extra output to show.</div>
+    {% endif %}
+  </section>
+{% endblock %}

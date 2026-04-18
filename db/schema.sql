@@ -8,6 +8,11 @@ CREATE TABLE IF NOT EXISTS locations (
     name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS suppliers(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -108,11 +113,19 @@ ON transfer_request_lines(request_id, item_id);
 CREATE INDEX IF NOT EXISTS ix_transfer_requests_status_date
 ON transfer_requests(status, request_date);
 
-
-CREATE TABLE IF NOT EXISTS suppliers(
+CREATE TABLE IF NOT EXISTS item_suppliers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL
+    item_id INTEGER NOT NULL,
+    supplier_id INTEGER NOT NULL,
+    ref_number TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(item_id, supplier_id),
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_item_suppliers_item_sort
+ON item_suppliers(item_id, sort_order, supplier_id);
 
 CREATE TABLE IF NOT EXISTS run_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
