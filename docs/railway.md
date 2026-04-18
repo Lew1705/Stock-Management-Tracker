@@ -6,7 +6,8 @@ Use Railway with:
 
 - one persistent volume
 - this repo deployed from GitHub
-- a tiny protected web page for manual runs
+- the Flask web app
+- a protected daily-run action
 
 This is the cheapest and fastest way to get the stock tracker off your laptop without rebuilding the app first.
 
@@ -18,11 +19,13 @@ The deploy command is:
 python -m stock.web
 ```
 
-It serves a simple page where staff can:
+It serves pages where staff can:
 
-- choose the run date
-- enter a shared access code
-- manually trigger the daily workflow
+- manage items
+- enter stock counts
+- view Little Shop request lists
+- view Keele supplier shopping lists
+- trigger the legacy daily workflow with a shared access code
 
 ## Railway variables
 
@@ -63,29 +66,28 @@ Use one Railway service from this repo with one mounted volume.
 
 ## Moving your existing database
 
-If you already have a working local `stock.db`, the repo can carry it for a one-time bootstrap.
+If you already have a working local `stock.db`, you can upload it into the Railway volume or intentionally carry it for a one-time bootstrap.
 
 On first boot, the Railway runner will copy `/app/stock.db` into the mounted volume if the volume database does not exist yet.
 
 That means the quickest migration path is:
 
-1. commit your current `stock.db`
+1. temporarily include your current `stock.db`
 2. push to GitHub
 3. redeploy Railway once
 
 After the first successful copy, Railway will keep using the volume copy.
 
-If you do not want to keep `stock.db` in the repo long term, you can remove it again after the Railway volume is populated.
+Remove `stock.db` from the repo again after the Railway volume is populated.
 
 ## Important limitation
 
-This is a very small internal tool page, not a full staff portal.
+This is an early internal tool, not a finished multi-user stock platform.
 
 The practical workflow is:
 
-- staff fill in Google Sheets
-- staff open the Railway-hosted page
-- staff click the button to run the stock logic
+- staff use the web app for counts and item management
+- managers use the request/shopping list pages
 - the SQLite database lives on the Railway volume
 
-If you later want a fuller multi-user app, the next step is a richer web UI plus Postgres.
+If you later want heavier multi-user access, the next step is Postgres plus login/roles.

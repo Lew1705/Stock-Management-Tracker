@@ -6,13 +6,30 @@ __pycache__/
 # Virtual environment
 .venv/
 
+# Local env files
+.env
+.env.*
+!.env.example
+
 # Local databases
 *.db
 *.sqlite
 *.sqlite3
-!stock.db
+*.db-journal
+
+# Local credentials
 src/creds.json
 creds.json
+*.credentials.json
+service-account*.json
+
+# Local/generated working files
+stock-import-test-*/
+test_import_*
+backups/
+counts/
+dropbox/
+orders/
 
 # Editors / OS
 .vscode/

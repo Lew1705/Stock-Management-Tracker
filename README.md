@@ -1,71 +1,195 @@
 # Stock Management
 
-This project is a Python stock-tracking tool for Keele and Little Shop. It stores stock data in SQLite and can import/export working sheets with Google Sheets.
+A Python and Flask stock tracker for managing stock between **Keele** and **Little Shop**.
 
-## What it is today
+The project stores stock data in SQLite, supports item/par-level imports from CSV, can still integrate with Google Sheets, and now includes a browser-based workflow for stock counts, request lists, and supplier shopping lists.
 
-The current app is not a hosted website yet. It is a command-line app that:
+## Features
 
-- stores data in a local `stock.db` SQLite database
-- reads Google Sheets using a service account JSON file
-- runs from Python commands such as `python -m stock.cli ...`
+- Web dashboard
+- Item list grouped by category
+- Add/edit items
+- Multiple suppliers per item
+- Supplier reference numbers
+- Stock counts for Keele and Little Shop
+- Little Shop request list from Keele
+- Keele supplier shopping list
+- CSV import for items and par levels
+- Google Sheets import/export support
+- Railway-friendly Docker deployment
 
-That means staff cannot use it independently unless the app is moved onto an always-on machine or rebuilt as a web app.
+## Workflow
 
-## Run locally
+1. Staff count stock for Little Shop and Keele.
+2. The counts are saved in the database.
+3. The app generates the **Little Shop request list**.
+4. Staff take stock from Keele to Little Shop.
+5. The app generates the **Keele supplier shopping list**.
+6. Someone orders stock from suppliers.
 
-1. Create and activate a virtual environment.
-2. Install dependencies:
+## Tech Stack
+
+- Python
+- Flask
+- SQLite
+- Jinja templates
+- Google Sheets API via `gspread`
+- Waitress
+- Docker
+
+## Project Structure
+
+```text
+.
+├── db/
+│   └── schema.sql
+├── docs/
+│   ├── architecture.md
+│   ├── development.md
+│   ├── deployment.md
+│   ├── railway.md
+│   ├── roadmap.md
+│   └── workflows.md
+├── src/
+│   └── stock/
+│       ├── cli.py
+│       ├── db.py
+│       ├── sheets.py
+│       └── web.py
+├── templates/
+│   ├── base.html
+│   ├── count_form.html
+│   ├── dashboard.html
+│   ├── item_form.html
+│   ├── items.html
+│   ├── request_list.html
+│   ├── run_day_result.html
+│   └── shopping_list.html
+├── Dockerfile
+├── requirements.txt
+└── README.md
+```
+
+## Local Setup
+
+Create and activate a virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-3. Set environment variables if needed:
+Set local environment variables:
 
 ```powershell
 $env:PYTHONPATH="src"
-$env:STOCK_DB_PATH="C:\path\to\stock.db"
-$env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\creds.json"
-$env:STOCK_SHEET_ID="your-google-sheet-id"
+$env:PORT="5000"
 ```
 
-4. Run a command:
+Initialise the database:
 
 ```powershell
-python -m stock.cli dashboard
+python -m stock.cli init
 ```
 
-## Hosting recommendation
+Run the web app:
 
-The simplest way to stop relying on your laptop is:
+```powershell
+python -m stock.web
+```
 
-1. Put this project on an always-on cloud host.
-2. Store `stock.db` on a persistent disk or volume.
-3. Store the Google service account JSON in environment variables or a secrets file.
-4. Run the CLI there, or schedule workflows there.
+Open:
 
-This is the lowest-risk option because the app already depends on SQLite and local files.
+[http://localhost:5000](http://localhost:5000)
 
-## Railway quick start
+## Main Web Pages
 
-This repo now includes a Railway-friendly `Dockerfile` and a small web trigger at `python -m stock.web`.
+- `/` dashboard
+- `/items` item list
+- `/items/new` add item
+- `/counts` enter stock counts
+- `/request-lists` Little Shop request list from Keele
+- `/shopping-lists` Keele supplier shopping list
 
-Suggested Railway variables:
+## Import Items And Par Levels
+
+The CSV import expects these columns:
+
+```csv
+item_name,category,base_unit,par_little_shop,par_keele,supplier,ref
+```
+
+Example:
+
+```csv
+Oatly,Milk,pack of 6,3,6,Booker,BK-001
+New York Bakery Bagels,Bread,pack of 5,4,4,Sainsbury's; Morrisons,SA-1; MO-2
+```
+
+Run:
+
+```powershell
+python -m stock.cli import-items "C:\path\to\items_par_levels_template.csv"
+```
+
+Supported unit examples:
+
+- `each`
+- `g`
+- `ml`
+- `pack`
+- `pack of 6`
+- `tray of 30`
+- `roll`
+- `bundle`
+
+## Useful CLI Commands
+
+```powershell
+python -m stock.cli init
+python -m stock.cli import-items path\to\items.csv
+python -m stock.cli export-sheets
+python -m stock.cli run-day --date 2026-04-18
+```
+
+## Environment Variables
+
+Copy `.env.example` as a reference.
 
 ```text
+PYTHONPATH=src
+PORT=5000
 STOCK_TIMEZONE=Europe/London
-STOCK_WEB_TOKEN=choose-a-shared-secret
+STOCK_DB_PATH=stock.db
+STOCK_WEB_TOKEN=choose-a-secret
 STOCK_SHEET_ID=your-google-sheet-id
+GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\service-account.json
+```
+
+For Railway, you can use:
+
+```text
 GOOGLE_SERVICE_ACCOUNT_JSON={...full service account json...}
 ```
 
-If you mount a Railway volume, the app will automatically store the database at `RAILWAY_VOLUME_MOUNT_PATH/stock.db`.
+## Important Notes
 
-## Next step options
+- Do not commit real Google credentials.
+- Do not commit a live production database unless you intentionally want to bootstrap a deployment.
+- SQLite is fine for local development and early testing.
+- Postgres is recommended once multiple staff rely on the app at the same time.
 
-- Fastest: deploy this as-is to an always-on machine and let staff keep using Google Sheets for counts.
-- Better multi-user setup: move the database from SQLite to Postgres.
-- Best user experience: build a small web UI so staff do not need command-line access.
+## Documentation
 
-More detail is in [docs/deployment.md](/C:/Users/lewis/OneDrive/Desktop/Stock%20Management/docs/deployment.md) and [docs/railway.md](/C:/Users/lewis/OneDrive/Desktop/Stock%20Management/docs/railway.md).
+- [Architecture](docs/architecture.md)
+- [Development](docs/development.md)
+- [Workflows](docs/workflows.md)
+- [Deployment](docs/deployment.md)
+- [Railway](docs/railway.md)
+- [Roadmap](docs/roadmap.md)
