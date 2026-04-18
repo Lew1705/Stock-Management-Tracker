@@ -1,6 +1,6 @@
 # Stock Management
 
-A Python and Flask stock tracker for managing stock between **Keele** and **Little Shop**.
+A Python and Flask stock tracker for managing stock between 2 coffee shop locations for the **Keele** and **Little Shop**.
 
 The project stores stock data in SQLite, supports item/par-level imports from CSV, can still integrate with Google Sheets, and now includes a browser-based workflow for stock counts, request lists, and supplier shopping lists.
 
