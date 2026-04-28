@@ -35,16 +35,20 @@
     <article class="panel">
       <p class="eyebrow">Current workflow</p>
       <h2>Run daily sync</h2>
-      <p>Keep your existing count-import and ordering flow working while we build the rest of the app.</p>
+      <p>Signed-in staff can run the daily workflow once both saved counts are ready for the chosen date.</p>
+      <div class="empty-state" style="margin-bottom:18px;">
+        {% if sync_readiness.is_ready %}
+          Ready for {{ sync_readiness.count_date }}. Saved counts exist for Keele and Little Shop.
+        {% else %}
+          Not ready for {{ sync_readiness.count_date }}.
+          Missing saved counts for: {{ sync_readiness.missing_locations|join(", ") }}.
+        {% endif %}
+      </div>
 
       <form method="post" action="/run-day" class="form-grid">
         <label for="run-date">
           Run date
           <input id="run-date" name="run_date" type="date" value="{{ today }}" required>
-        </label>
-        <label for="token">
-          Access code
-          <input id="token" name="token" type="password" required>
         </label>
         <button type="submit">Run Daily Workflow</button>
       </form>
@@ -62,6 +66,58 @@
         Timezone: {{ timezone_name }}
       </div>
     </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Count status</p>
+    <h2>Daily count readiness</h2>
+    <p>Pick a date to see whether each location has a saved count and whether the daily sync can run.</p>
+
+    <form method="get" action="/" class="form-grid">
+      <label for="status-date">
+        Status date
+        <input id="status-date" name="date" type="date" value="{{ count_status.count_date }}" required>
+      </label>
+      <button type="submit">Check count status</button>
+    </form>
+
+    <div class="category-list">
+      {% for row in count_status.locations %}
+        <article class="category-card">
+          <div class="status status-{{ row.status_class }}">{{ row.status_name }}</div>
+          <h3 style="margin:0 0 8px;">{{ row.location }}</h3>
+          <p>{{ row.status_message }}</p>
+          <table>
+            <tbody>
+              <tr>
+                <th>Count record</th>
+                <td>{{ row.count_id or "Not created" }}</td>
+              </tr>
+              <tr>
+                <th>Saved lines</th>
+                <td>{{ row.line_count }}</td>
+              </tr>
+              <tr>
+                <th>Reconciled</th>
+                <td>{% if row.is_reconciled %}Yes{% else %}No{% endif %}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="actions-row">
+            <a class="button-link" href="{% if row.location == 'Keele' %}/counts/keele{% else %}/counts/little-shop{% endif %}?date={{ count_status.count_date }}">Open {{ row.location }} count</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+    <div class="{% if count_status.is_ready %}success-box{% else %}error-box{% endif %}">
+      {% if count_status.is_ready %}
+        Both locations are ready for {{ count_status.count_date }}. Daily sync can run.
+      {% else %}
+        Daily sync is still blocked for {{ count_status.count_date }}.
+        Missing ready counts for: {{ count_status.missing_locations|join(", ") }}.
+      {% endif %}
+    </div>
   </section>
 
   <section class="panel">

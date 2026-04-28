@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Login | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Secure access</p>
+    <h2>Sign in to Stock Tracker</h2>
+    <p>
+      Use your team account to enter counts, view request lists, and run the daily workflow.
+    </p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Team login</p>
+    <h2>Welcome back</h2>
+
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="form-grid">
+      <input type="hidden" name="next" value="{{ next_url }}">
+
+      <label for="username">
+        Username
+        <input id="username" name="username" type="text" autocomplete="username" required>
+      </label>
+
+      <label for="password">
+        Password
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+{% endblock %}

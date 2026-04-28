@@ -1,4 +1,5 @@
 import csv
+import getpass
 from pathlib import Path
 
 import argparse
@@ -46,65 +47,8 @@ from .db import (
     export_supplier_order_to_sheet,
     export_count_to_sheet
 )
-
-
-def run_daily_for_location(location: str, date: str):
-    print(f"\n==============================")
-    print(f"🚀 RUNNING DAY FOR: {location}")
-    print(f"==============================")
-
-    # Import count
-    print("\n📥 Importing count...")
-    count_id = import_count_from_sheet(location, date)
-    print(f"   → Count ID: {count_id}")
-
-    # Reconcile
-    print("\n⚖️ Reconciling...")
-    report = reconcile_count(count_id)
-    total_variance = sum(abs(r["diff"]) for r in report)
-    print(f"   → Total variance: {round(total_variance, 2)}")
-
-    # LITTLE SHOP LOGIC
-    if location == "Little Shop":
-
-        print("\n📦 REQUEST:")
-        request_rows = generate_request_from_par(location)
-
-        if not request_rows:
-            print(" - No items needed")
-        else:
-            for r in request_rows:
-                print(f" - {r['name']}: {round(r['request_qty'],2)}")
-
-        print("\n🚚 PICK FROM KEELE:")
-        pick_rows = generate_keele_pick_list(location)
-
-        if not pick_rows:
-            print(" - Nothing to pick")
-        else:
-            for r in pick_rows:
-                print(f" - {r['name']}: {round(r['pick_qty'],2)}")
-
-        print("\n📤 Exporting pick list...")
-        export_pick_list_to_sheet(pick_rows)
-
-    # KEELE LOGIC
-    if location == "Keele":
-
-        print("\n🛒 SUPPLIER ORDER:")
-        order_rows = generate_supplier_order()
-
-        has_orders = any(r["supplier_order_qty"] > 0 for r in order_rows)
-
-        if not has_orders:
-            print(" - No supplier order needed")
-        else:
-            for r in order_rows:
-                if r["supplier_order_qty"] > 0:
-                    print(f" - {r['name']}: {round(r['supplier_order_qty'],2)}")
-
-        print("\n📤 Exporting supplier order...")
-        export_supplier_order_to_sheet(order_rows)
+from .services.auth import VALID_USER_ROLES, create_user_account
+from .services.daily_run import run_day
 
 
 # --- Helper: pretty print stock for one item in both locations ---
@@ -118,16 +62,7 @@ def print_item_stock(item: str) -> None:
 
 def cmd_run_day(args):
     init_db()
-
-    date = args.date
-
-    # Run Little Shop FIRST
-    run_daily_for_location("Little Shop", date)
-
-    # Then Keele
-    run_daily_for_location("Keele", date)
-
-    print("\n✅ FULL DAY COMPLETE\n")
+    run_day(args.date)
 
 
 def cmd_init(_args: argparse.Namespace) -> None:
@@ -136,8 +71,25 @@ def cmd_init(_args: argparse.Namespace) -> None:
     print("Database initialised and locations seeded.")
 
 
+def cmd_create_user(args: argparse.Namespace) -> None:
+    init_db()
+    seed_locations()
+
+    password = args.password or getpass.getpass("Password: ")
+    confirm_password = args.confirm_password or getpass.getpass("Confirm password: ")
+    if password != confirm_password:
+        raise SystemExit("Passwords did not match.")
+
+    try:
+        user_id = create_user_account(args.username, password, args.role)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(f"Created user {args.username} with role {args.role} (id {user_id}).")
+
+
 def cmd_add_item(args: argparse.Namespace) -> None:
-    insert_item(args.name, args.category, args.base_unit)
+    insert_item(args.name, args.category, args.base_unit, args.cost_per_unit)
     print(f"Item added (or already exists): {args.name}")
 
 
@@ -202,11 +154,6 @@ def cmd_export_count_sheet(args):
 def cmd_import_count_sheet(args):
     count_id = import_count_from_sheet(args.location, args.date)
     print(f"Imported count {count_id}")
-
-
-def cmd_import_count_sheet(args):
-    from .db import import_count_from_sheet
-    import_count_from_sheet(args.location, args.date)
 
 def cmd_order_sheet(args: argparse.Namespace) -> None:
     init_db()
@@ -838,6 +785,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("init", help="Initialise database and seed locations")
     sp.set_defaults(func=cmd_init)
 
+    sp = sub.add_parser("create-user", help="Create a login for the web app")
+    sp.add_argument("--username", required=True)
+    sp.add_argument("--role", default="staff", choices=VALID_USER_ROLES)
+    sp.add_argument("--password", required=False, help="Optional. If omitted, you will be prompted securely.")
+    sp.add_argument("--confirm-password", required=False, help="Optional confirmation when --password is supplied.")
+    sp.set_defaults(func=cmd_create_user)
+
     # add-item
     sp = sub.add_parser("add-item", help="Add an item")
     sp.add_argument("--name", required=True)
@@ -847,6 +801,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Examples: each, g, ml, pack, tray, roll, bundle, pack of 6, pack of 18, tray of 30",
     )
+    sp.add_argument("--cost-per-unit", required=False, type=float, default=0.0)
     sp.set_defaults(func=cmd_add_item)
 
     # receive
@@ -1069,19 +1024,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser_import_items.set_defaults(func=cmd_import_items)
 
     return p
-
-
-
-
-def print_item_stock(item: str) -> None:
-    k = current_stock("Keele", item)
-    l = current_stock("Little Shop", item)
-    print(f"{item}")
-    print(f"  Keele:       {k}")
-    print(f"  Little Shop: {l}")
-
-
-
 
 def main() -> None:
     parser = build_parser()

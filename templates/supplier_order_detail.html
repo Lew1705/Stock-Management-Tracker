@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Supplier Order {{ header["id"] }} | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Supplier order {{ header["id"] }}</p>
+    <h2>Status: {{ header["status"] }}</h2>
+    <p>Order date: {{ header["order_date"] }}.</p>
+  </section>
+
+  {% if request.args.get("error") %}
+    <section class="panel"><div class="error-box">{{ request.args.get("error") }}</div></section>
+  {% endif %}
+  {% if request.args.get("created") == "1" %}
+    <section class="panel"><div class="success-box">Supplier order created.</div></section>
+  {% endif %}
+  {% if request.args.get("ordered") == "1" %}
+    <section class="panel"><div class="success-box">Supplier order marked as ordered.</div></section>
+  {% endif %}
+  {% if request.args.get("received") == "1" %}
+    <section class="panel"><div class="success-box">Supplier order received. Added {{ request.args.get("received_qty", "0") }} units into Keele.</div></section>
+  {% endif %}
+  {% if request.args.get("cancelled") == "1" %}
+    <section class="panel"><div class="success-box">Supplier order cancelled.</div></section>
+  {% endif %}
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Ordered qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(ordered_qty) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Received qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(received_qty) }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/supplier-orders">Back to supplier orders</a>
+      <a class="button-link" href="/shopping-lists?date={{ header['order_date'] }}">Open shopping list</a>
+    </div>
+
+    {% if header["status"] == "DRAFT" %}
+      <form method="post" action="/supplier-orders/{{ header['id'] }}/ordered" class="form-grid">
+        <button type="submit">Mark as ordered</button>
+      </form>
+    {% endif %}
+
+    {% if header["status"] in ("DRAFT", "ORDERED") %}
+      <form method="post" action="/supplier-orders/{{ header['id'] }}/received" class="form-grid">
+        <label for="note">
+          Invoice note or reference
+          <input id="note" name="note" type="text" value="Invoice received for supplier order {{ header['id'] }}">
+        </label>
+        <button type="submit">Receive invoice into Keele</button>
+      </form>
+    {% endif %}
+
+    {% if header["status"] != "RECEIVED" and header["status"] != "CANCELLED" %}
+      <form method="post" action="/supplier-orders/{{ header['id'] }}/cancel" class="form-grid">
+        <button type="submit">Cancel order</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Order lines</p>
+    <h2>Items to buy</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Item</th>
+          <th>Ordered</th>
+          <th>Received</th>
+          <th>Unit cost</th>
+          <th>Unit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in lines %}
+          <tr>
+            <td>{{ row["supplier_name"] }}</td>
+            <td>{{ row["name"] }}</td>
+            <td>{{ '%.2f'|format(row["ordered_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["received_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["unit_cost"]) }}</td>
+            <td>{{ row["base_unit"] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Linked paperwork</p>
+    <h2>Uploaded invoices</h2>
+    {% if invoices %}
+      <table>
+        <thead>
+          <tr>
+            <th>Invoice</th>
+            <th>Reference</th>
+            <th>Status</th>
+            <th>Uploaded</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in invoices %}
+            <tr>
+              <td>{{ row["original_filename"] }}</td>
+              <td>{{ row["invoice_reference"] or "Not entered" }}</td>
+              <td>{{ row["review_status"] }}</td>
+              <td>{{ row["uploaded_at"] }}</td>
+              <td><a href="/invoices/{{ row['id'] }}">Open invoice</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">
+        No invoices have been uploaded against this supplier order yet.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

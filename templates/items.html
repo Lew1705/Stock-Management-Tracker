@@ -7,8 +7,8 @@
     <p class="eyebrow">Inventory foundation</p>
     <h2>Items and categories</h2>
     <p>
-      This is the first real management page in the app. Right now it is read-only, which is perfect for learning:
-      we can see the data model on screen before we add create/edit forms.
+      This is the main inventory management page in the app. You can now add items, edit supplier details,
+      and maintain par levels for both Keele and Little Shop from the item edit screen.
     </p>
   </section>
 
@@ -26,8 +26,17 @@
   <section class="panel">
     <p class="eyebrow">First editable inventory screen</p>
     <h2>Inventory by category</h2>
+    <form method="get" action="/items" class="form-grid">
+      <label for="q">
+        Search items
+        <input id="q" name="q" type="text" value="{{ search_query }}" placeholder="Search by item, category, or supplier">
+      </label>
+      <button type="submit">Filter items</button>
+    </form>
     <div class="actions-row">
-      <a class="button-link primary" href="/items/new">Add a new item</a>
+      {% if is_manager %}
+        <a class="button-link primary" href="/items/new">Add a new item</a>
+      {% endif %}
     </div>
 
     {% if grouped_items %}
@@ -47,16 +56,42 @@
                 </tr>
               </thead>
               <tbody>
-                {% for row in rows %}
+                {% for row in rows[:6] %}
                   <tr>
                     <td>{{ row["name"] }}</td>
                     <td>{{ row["base_unit"] }}</td>
                     <td>{{ row["suppliers"] or "Not set yet" }}</td>
-                    <td><a href="/items/{{ row['id'] }}/edit">Edit</a></td>
+                    <td>{% if is_manager %}<a href="/items/{{ row['id'] }}/edit">Edit</a>{% else %}View only{% endif %}</td>
                   </tr>
                 {% endfor %}
               </tbody>
             </table>
+
+            {% if rows|length > 6 %}
+              <details class="reveal-more">
+                <summary>Show {{ rows|length - 6 }} more item{% if rows|length - 6 != 1 %}s{% endif %}</summary>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Unit</th>
+                      <th>Suppliers</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in rows[6:] %}
+                      <tr>
+                        <td>{{ row["name"] }}</td>
+                        <td>{{ row["base_unit"] }}</td>
+                        <td>{{ row["suppliers"] or "Not set yet" }}</td>
+                        <td>{% if is_manager %}<a href="/items/{{ row['id'] }}/edit">Edit</a>{% else %}View only{% endif %}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </details>
+            {% endif %}
           </article>
         {% endfor %}
       </div>
@@ -64,7 +99,9 @@
       <div class="empty-state">
         No items found yet.
         <br>
-        <a href="/items/new">Create your first item</a>
+        {% if is_manager %}
+          <a href="/items/new">Create your first item</a>
+        {% endif %}
       </div>
     {% endif %}
   </section>

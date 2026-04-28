@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Transfer {{ header["id"] }} | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Transfer request {{ header["id"] }}</p>
+    <h2>{{ header["from_location"] }} to {{ header["to_location"] }}</h2>
+    <p>Status: {{ header["status"] }}. Request date: {{ header["request_date"] }}.</p>
+  </section>
+
+  {% if request.args.get("error") %}
+    <section class="panel"><div class="error-box">{{ request.args.get("error") }}</div></section>
+  {% endif %}
+  {% if request.args.get("moved") == "1" %}
+    <section class="panel"><div class="success-box">Transfer updated. Moved {{ request.args.get("moved_qty", "0") }} units.</div></section>
+  {% endif %}
+  {% if request.args.get("cancelled") == "1" %}
+    <section class="panel"><div class="success-box">Transfer request cancelled.</div></section>
+  {% endif %}
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Requested qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(requested_qty) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Fulfilled qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(fulfilled_qty) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Outstanding qty</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(outstanding_qty) }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/transfers">Back to transfers</a>
+      <a class="button-link" href="/request-lists?date={{ header['request_date'] }}">Open request list</a>
+    </div>
+
+    {% if header["status"] != "CANCELLED" and outstanding_qty > 0 %}
+      <form method="post" action="/transfers/{{ header['id'] }}/confirm" class="form-grid">
+        <label for="note">
+          Confirmation note
+          <input id="note" name="note" type="text" value="Confirmed transfer {{ header['id'] }}">
+        </label>
+        <button type="submit">Confirm more stock moved</button>
+      </form>
+    {% endif %}
+
+    {% if is_manager and header["status"] not in ("FULFILLED", "CANCELLED") %}
+      <form method="post" action="/transfers/{{ header['id'] }}/cancel" class="form-grid">
+        <button type="submit">Cancel request</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Request lines</p>
+    <h2>Items</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Requested</th>
+          <th>Fulfilled</th>
+          <th>Outstanding</th>
+          <th>Unit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in lines %}
+          <tr>
+            <td>{{ row["name"] }}</td>
+            <td>{{ '%.2f'|format(row["requested_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["fulfilled_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["requested_qty_base"] - row["fulfilled_qty_base"]) }}</td>
+            <td>{{ row["base_unit"] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Ledger activity</p>
+    <h2>Transactions for this request</h2>
+    {% if activity %}
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Type</th>
+            <th>Item</th>
+            <th>Location</th>
+            <th>Qty</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in activity %}
+            <tr>
+              <td>{{ row["ts"] }}</td>
+              <td>{{ row["type"] }}</td>
+              <td>{{ row["item_name"] }}</td>
+              <td>{{ row["location_name"] }}</td>
+              <td>{{ '%.2f'|format(row["qty_base"]) }}</td>
+              <td>{{ row["note"] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No transfer transactions recorded yet.</div>
+    {% endif %}
+  </section>
+{% endblock %}

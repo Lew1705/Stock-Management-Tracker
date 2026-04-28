@@ -1,9 +1,9 @@
 import os
 import sqlite3
-import re
 from pathlib import Path
 import csv
 from .sheets import get_spreadsheet, get_sheet, clear_row_groups, apply_collapsible_row_groups
+from .core.units import VALID_BASE_UNITS, normalize_base_unit, parse_supplier_links, split_multi_value
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -15,24 +15,9 @@ DEFAULT_DB_PATH = (
 DB_PATH = Path(os.environ.get("STOCK_DB_PATH", str(DEFAULT_DB_PATH))).expanduser().resolve()
 SCHEMA_PATH = PROJECT_ROOT / "db" / "schema.sql"
 
-VALID_BASE_UNITS = (
-    "each",
-    "g",
-    "ml",
-    "pack",
-    "tray",
-    "roll",
-    "bundle",
-    "pack of 5",
-    "pack of 6",
-    "pack of 12",
-    "pack of 14",
-    "pack of 24",
-)
-
-
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
@@ -54,6 +39,15 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
     if not _column_exists(conn, "items", "supplier_id"):
         conn.execute("ALTER TABLE items ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id);")
 
+    if not _column_exists(conn, "items", "cost_per_unit"):
+        conn.execute("ALTER TABLE items ADD COLUMN cost_per_unit REAL NOT NULL DEFAULT 0;")
+
+    if not _column_exists(conn, "stock_transactions", "cost_per_unit_at_time"):
+        conn.execute("ALTER TABLE stock_transactions ADD COLUMN cost_per_unit_at_time REAL NOT NULL DEFAULT 0;")
+
+    if not _column_exists(conn, "stock_transactions", "transfer_request_id"):
+        conn.execute("ALTER TABLE stock_transactions ADD COLUMN transfer_request_id INTEGER REFERENCES transfer_requests(id);")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS item_suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +64,72 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS ix_item_suppliers_item_sort
         ON item_suppliers(item_id, sort_order, supplier_id);
     """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_stock_transactions_request_id
+        ON stock_transactions(transfer_request_id);
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'staff',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ORDERED', 'RECEIVED', 'CANCELLED')),
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ordered_at TEXT,
+            received_at TEXT
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_order_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            supplier_name TEXT NOT NULL,
+            ordered_qty_base REAL NOT NULL,
+            received_qty_base REAL NOT NULL DEFAULT 0,
+            unit_cost REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+            FOREIGN KEY(item_id) REFERENCES items(id)
+        );
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_supplier_orders_status_date
+        ON supplier_orders(status, order_date);
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_supplier_order_lines_order
+        ON supplier_order_lines(order_id);
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            invoice_reference TEXT NOT NULL DEFAULT '',
+            supplier_name TEXT NOT NULL DEFAULT '',
+            original_filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL UNIQUE,
+            content_type TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            review_status TEXT NOT NULL DEFAULT 'UPLOADED' CHECK (review_status IN ('UPLOADED', 'REVIEWED')),
+            uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+            reviewed_at TEXT,
+            FOREIGN KEY(order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE
+        );
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_supplier_invoices_order
+        ON supplier_invoices(order_id, uploaded_at DESC);
+    """)
 
     # Backfill the new link table from older single-supplier rows.
     conn.execute("""
@@ -78,53 +138,31 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
         FROM items
         WHERE supplier_id IS NOT NULL;
     """)
-
-
-def normalize_base_unit(raw_value: str) -> str:
-    value = " ".join((raw_value or "").strip().lower().split())
-    if not value:
-        raise ValueError("base_unit is required")
-
-    if value in VALID_BASE_UNITS:
-        return value
-
-    match = re.fullmatch(r"(pack|tray)(?:\s+of)?\s+(\d+)", value)
-    if match:
-        unit_type = match.group(1)
-        normalized = f"{unit_type} of {int(match.group(2))}"
-        return normalized
-
-    raise ValueError(
-        "base_unit must be one of the standard units "
-        + ", ".join(VALID_BASE_UNITS)
-        + ", or a measured package like 'pack of 18' or 'tray of 30'"
-    )
+    conn.execute("""
+        UPDATE items
+        SET cost_per_unit = COALESCE(cost_per_unit, 0)
+        WHERE cost_per_unit IS NULL;
+    """)
+    conn.execute("""
+        UPDATE stock_transactions
+        SET cost_per_unit_at_time = COALESCE(
+            (
+                SELECT i.cost_per_unit
+                FROM items i
+                WHERE i.id = stock_transactions.item_id
+            ),
+            0
+        )
+        WHERE cost_per_unit_at_time IS NULL OR cost_per_unit_at_time = 0;
+    """)
 
 
 def _split_multi_value(raw_value: str) -> list[str]:
-    value = (raw_value or "").strip()
-    if not value:
-        return []
-    return [part.strip() for part in re.split(r"\s*[|;,]\s*", value) if part.strip()]
+    return split_multi_value(raw_value)
 
 
 def _parse_supplier_links(raw_suppliers: str, raw_refs: str) -> list[tuple[str, str]]:
-    suppliers = _split_multi_value(raw_suppliers)
-    refs = _split_multi_value(raw_refs)
-
-    if not suppliers:
-        return []
-
-    if not refs:
-        refs = [""] * len(suppliers)
-    elif len(refs) == 1 and len(suppliers) > 1:
-        refs = refs * len(suppliers)
-    elif len(refs) != len(suppliers):
-        raise ValueError(
-            "reference values must either be blank, a single shared value, or match the supplier count"
-        )
-
-    return list(zip(suppliers, refs))
+    return parse_supplier_links(raw_suppliers, raw_refs)
 
 
 def _sync_item_suppliers(cur: sqlite3.Cursor, item_id: int, supplier_links: list[tuple[str, str]]) -> int | None:
@@ -222,6 +260,83 @@ def recent_run_history(limit: int = 10):
             (limit,),
         ).fetchall()
 
+
+def create_user(username: str, password_hash: str, role: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO users (username, password_hash, role)
+            VALUES (?, ?, ?);
+            """,
+            (username, password_hash, role),
+        )
+        return int(cur.lastrowid)
+
+
+def get_user_by_username(username: str):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, username, password_hash, role, is_active, created_at
+            FROM users
+            WHERE username = ?;
+            """,
+            (username,),
+        ).fetchone()
+
+
+def get_user_by_id(user_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, username, password_hash, role, is_active, created_at
+            FROM users
+            WHERE id = ?;
+            """,
+            (user_id,),
+        ).fetchone()
+
+
+def list_users():
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, username, role, is_active, created_at
+            FROM users
+            ORDER BY is_active DESC, LOWER(username);
+            """
+        ).fetchall()
+
+
+def update_user_role(user_id: int, role: str) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET role = ? WHERE id = ?;",
+            (role, int(user_id)),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"User {user_id} was not found.")
+
+
+def set_user_active(user_id: int, is_active: bool) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET is_active = ? WHERE id = ?;",
+            (1 if is_active else 0, int(user_id)),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"User {user_id} was not found.")
+
+
+def update_user_password(user_id: int, password_hash: str) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?;",
+            (password_hash, int(user_id)),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"User {user_id} was not found.")
+
 def list_locations() -> None:
     with get_conn() as conn:
         rows = conn.execute("SELECT id, name FROM locations ORDER BY id;").fetchall()
@@ -230,16 +345,30 @@ def list_locations() -> None:
         print(dict(row))
 
 
-def insert_item(name: str, category: str, base_unit: str) -> None:
+def normalize_cost_per_unit(raw_value: float | int | str | None) -> float:
+    text = str(raw_value or "").strip()
+    if text == "":
+        return 0.0
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise ValueError("Cost per unit must be a number.") from exc
+    if value < 0:
+        raise ValueError("Cost per unit cannot be negative.")
+    return value
+
+
+def insert_item(name: str, category: str, base_unit: str, cost_per_unit: float | int | str | None = 0) -> None:
     normalized_unit = normalize_base_unit(base_unit)
+    normalized_cost = normalize_cost_per_unit(cost_per_unit)
     with get_conn() as conn:
         conn.execute("""
         
-        INSERT OR IGNORE INTO items (name, category, base_unit)
-        VALUES (?, ?, ?)
+        INSERT OR IGNORE INTO items (name, category, base_unit, cost_per_unit)
+        VALUES (?, ?, ?, ?)
                      
         """,
-        (name, category, normalized_unit),
+        (name, category, normalized_unit, normalized_cost),
     )
 
 def list_items():
@@ -247,7 +376,7 @@ def list_items():
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, name, category, base_unit
+        SELECT id, name, category, base_unit, cost_per_unit
         FROM items
         ORDER BY id
     """)
@@ -255,7 +384,10 @@ def list_items():
     rows = cur.fetchall()
 
     for r in rows:
-        print(f"{r['id']:>3} | {r['name']:<25} | {r['category']:<15} | {r['base_unit']}")
+        print(
+            f"{r['id']:>3} | {r['name']:<25} | {r['category']:<15} | "
+            f"{r['base_unit']:<12} | {float(r['cost_per_unit'] or 0):.2f}"
+        )
 
     conn.close()
 
@@ -269,6 +401,7 @@ def get_items_with_suppliers():
                 i.name,
                 i.category,
                 i.base_unit,
+                i.cost_per_unit,
                 COALESCE(
                     GROUP_CONCAT(
                         CASE
@@ -282,7 +415,7 @@ def get_items_with_suppliers():
             FROM items i
             LEFT JOIN item_suppliers isp ON isp.item_id = i.id
             LEFT JOIN suppliers s ON s.id = isp.supplier_id
-            GROUP BY i.id, i.name, i.category, i.base_unit
+            GROUP BY i.id, i.name, i.category, i.base_unit, i.cost_per_unit
             ORDER BY LOWER(i.category), LOWER(i.name);
             """
         ).fetchall()
@@ -344,6 +477,45 @@ def get_count_entry_rows(location: str, count_date: str):
     }
 
 
+def get_saved_count_summary(location: str, count_date: str) -> dict:
+    location_id = get_location_id(location)
+
+    with get_conn() as conn:
+        count_row = conn.execute(
+            """
+            SELECT id, is_reconciled
+            FROM stock_counts
+            WHERE location_id = ? AND count_date = ?
+            ORDER BY datetime(created_at) DESC
+            LIMIT 1;
+            """,
+            (location_id, count_date),
+        ).fetchone()
+
+        if count_row is None:
+            return {
+                "count_id": None,
+                "is_reconciled": False,
+                "line_count": 0,
+            }
+
+        count_id = int(count_row["id"])
+        line_row = conn.execute(
+            """
+            SELECT COUNT(*) AS line_count
+            FROM stock_count_lines
+            WHERE count_id = ?;
+            """,
+            (count_id,),
+        ).fetchone()
+
+    return {
+        "count_id": count_id,
+        "is_reconciled": bool(count_row["is_reconciled"]),
+        "line_count": int(line_row["line_count"] or 0),
+    }
+
+
 def save_web_count(location: str, count_date: str, count_values: dict[int, str]) -> int:
     count_id = get_or_create_count(location, count_date)
 
@@ -386,6 +558,7 @@ def generate_shopping_list(location_name: str, as_of_date: str):
                 i.name,
                 i.category,
                 i.base_unit,
+                i.cost_per_unit,
                 p.par_qty_base
             FROM par_levels p
             JOIN items i ON i.id = p.item_id
@@ -433,6 +606,7 @@ def generate_request_list(location_name: str, as_of_date: str, source_location_n
                 i.name,
                 i.category,
                 i.base_unit,
+                i.cost_per_unit,
                 p.par_qty_base
             FROM par_levels p
             JOIN items i ON i.id = p.item_id
@@ -455,6 +629,7 @@ def generate_request_list(location_name: str, as_of_date: str, source_location_n
         source_qty = latest_count_qty(source_location_name, item_id, as_of_date)
         fulfill_qty = min(request_qty, source_qty)
         source_shortfall = max(request_qty - source_qty, 0.0)
+        cost_per_unit = float(row["cost_per_unit"] or 0.0)
 
         results.append(
             {
@@ -465,6 +640,8 @@ def generate_request_list(location_name: str, as_of_date: str, source_location_n
                 "counted_qty": counted_qty,
                 "par_qty": par_qty,
                 "request_qty": request_qty,
+                "estimated_value": request_qty * cost_per_unit,
+                "cost_per_unit": cost_per_unit,
                 "source_location": source_location_name,
                 "source_available_qty": source_qty,
                 "fulfill_qty": fulfill_qty,
@@ -551,7 +728,7 @@ def get_item_for_edit(item_id: int):
     with get_conn() as conn:
         item = conn.execute(
             """
-            SELECT id, name, category, base_unit
+            SELECT id, name, category, base_unit, cost_per_unit
             FROM items
             WHERE id = ?;
             """,
@@ -580,12 +757,43 @@ def get_item_for_edit(item_id: int):
         "name": str(item["name"]),
         "category": str(item["category"]),
         "base_unit": str(item["base_unit"]),
+        "cost_per_unit": str(float(item["cost_per_unit"] or 0)),
         "supplier": "; ".join(supplier_names),
         "ref": "; ".join(refs),
     }
 
 
-def save_item(item_id: int | None, name: str, category: str, base_unit: str, supplier_text: str, ref_text: str) -> int:
+def get_item_par_levels(item_id: int) -> dict[str, float | None]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT l.name AS location_name, p.par_qty_base
+            FROM locations l
+            LEFT JOIN par_levels p
+              ON p.location_id = l.id
+             AND p.item_id = ?
+            WHERE l.name IN ('Keele', 'Little Shop')
+            ORDER BY l.name;
+            """,
+            (item_id,),
+        ).fetchall()
+
+    result = {"Keele": None, "Little Shop": None}
+    for row in rows:
+        value = row["par_qty_base"]
+        result[str(row["location_name"])] = None if value is None else float(value)
+    return result
+
+
+def save_item(
+    item_id: int | None,
+    name: str,
+    category: str,
+    base_unit: str,
+    supplier_text: str,
+    ref_text: str,
+    cost_per_unit: float | int | str | None = 0,
+) -> int:
     normalized_name = " ".join((name or "").strip().split())
     normalized_category = " ".join((category or "").strip().split())
 
@@ -595,6 +803,7 @@ def save_item(item_id: int | None, name: str, category: str, base_unit: str, sup
         raise ValueError("Category is required.")
 
     normalized_unit = normalize_base_unit(base_unit)
+    normalized_cost = normalize_cost_per_unit(cost_per_unit)
     supplier_links = _parse_supplier_links(supplier_text, ref_text)
 
     with get_conn() as conn:
@@ -603,20 +812,20 @@ def save_item(item_id: int | None, name: str, category: str, base_unit: str, sup
             if item_id is None:
                 cur.execute(
                     """
-                    INSERT INTO items (name, category, base_unit, supplier_id)
-                    VALUES (?, ?, ?, NULL);
+                    INSERT INTO items (name, category, base_unit, cost_per_unit, supplier_id)
+                    VALUES (?, ?, ?, ?, NULL);
                     """,
-                    (normalized_name, normalized_category, normalized_unit),
+                    (normalized_name, normalized_category, normalized_unit, normalized_cost),
                 )
                 saved_item_id = int(cur.lastrowid)
             else:
                 cur.execute(
                     """
                     UPDATE items
-                    SET name = ?, category = ?, base_unit = ?, supplier_id = NULL
+                    SET name = ?, category = ?, base_unit = ?, cost_per_unit = ?, supplier_id = NULL
                     WHERE id = ?;
                     """,
-                    (normalized_name, normalized_category, normalized_unit, int(item_id)),
+                    (normalized_name, normalized_category, normalized_unit, normalized_cost, int(item_id)),
                 )
                 if cur.rowcount == 0:
                     raise ValueError(f"Unknown item_id: {item_id}")
@@ -635,6 +844,34 @@ def save_item(item_id: int | None, name: str, category: str, base_unit: str, sup
             raise
 
 
+def set_par_level_by_item_id(location: str, item_id: int, par_qty_base: float) -> None:
+    location_id = get_location_id(location)
+
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO par_levels (location_id, item_id, par_qty_base)
+            VALUES (?, ?, ?)
+            ON CONFLICT(location_id, item_id)
+            DO UPDATE SET par_qty_base = excluded.par_qty_base;
+            """,
+            (location_id, int(item_id), par_qty_base),
+        )
+
+
+def delete_par_level_by_item_id(location: str, item_id: int) -> None:
+    location_id = get_location_id(location)
+
+    with get_conn() as conn:
+        conn.execute(
+            """
+            DELETE FROM par_levels
+            WHERE location_id = ? AND item_id = ?;
+            """,
+            (location_id, int(item_id)),
+        )
+
+
 def get_location_id(name: str) -> int:
     with get_conn() as conn:
         row = conn.execute("SELECT id FROM locations WHERE name = ?;", (name,)).fetchone()
@@ -649,17 +886,44 @@ def get_item_id(name: str) -> int:
             raise ValueError(f"Unknown items: {name}")
         return int(row["id"])
 
-def add_transaction(location: str, item: str, qty_base: float, tx_type: str, note: str = "") -> None:
+def get_item_cost_per_unit(item_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT cost_per_unit FROM items WHERE id = ?;",
+            (item_id,),
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Unknown item_id: {item_id}")
+    return float(row["cost_per_unit"] or 0.0)
+
+
+def add_transaction(
+    location: str,
+    item: str,
+    qty_base: float,
+    tx_type: str,
+    note: str = "",
+    transfer_request_id: int | None = None,
+) -> None:
     location_id = get_location_id(location)
     item_id = get_item_id(item)
+    cost_per_unit = get_item_cost_per_unit(item_id)
 
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO stock_transactions (location_id, item_id, qty_base, type, note)
-            VALUES (?, ?, ?, ?, ?);
+            INSERT INTO stock_transactions (
+                location_id,
+                item_id,
+                qty_base,
+                cost_per_unit_at_time,
+                transfer_request_id,
+                type,
+                note
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?);
             """,
-            (location_id, item_id, qty_base, tx_type, note),
+            (location_id, item_id, qty_base, cost_per_unit, transfer_request_id, tx_type, note),
         )
 
 def receive_into_keele(item: str, qty_base: float, note: str = "") -> None:
@@ -956,7 +1220,7 @@ def get_items():
     """Return all items as sqlite3.Row objects (for CLI dashboards, etc)."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, name, category, base_unit FROM items ORDER BY name;"
+            "SELECT id, name, category, base_unit, cost_per_unit FROM items ORDER BY name;"
         ).fetchall()
 
 
@@ -1285,10 +1549,25 @@ def reconcile_count(count_id: int, note: str = "") -> list[dict]:
                 adj_note = note.strip() or f"Reconcile count {count_id} ({count_date})"
                 conn.execute(
                     """
-                    INSERT INTO stock_transactions (ts, item_id, location_id, qty_base, type, note)
-                    VALUES (?, ?, ?, ?, 'ADJUSTMENT', ?);
+                    INSERT INTO stock_transactions (
+                        ts,
+                        item_id,
+                        location_id,
+                        qty_base,
+                        cost_per_unit_at_time,
+                        type,
+                        note
+                    )
+                    VALUES (?, ?, ?, ?, ?, 'ADJUSTMENT', ?);
                     """,
-                    (count_created_at, item_id, location_id, diff, adj_note),
+                    (
+                        count_created_at,
+                        item_id,
+                        location_id,
+                        diff,
+                        get_item_cost_per_unit(item_id),
+                        adj_note,
+                    ),
                 )
 
         # mark reconciled (locks count)
@@ -1427,18 +1706,48 @@ def fulfill_transfer_request(request_id: int, note: str = "") -> None:
             # OUT of Keele (from)
             conn.execute(
                 """
-                INSERT INTO stock_transactions (item_id, location_id, qty_base, type, note)
-                VALUES (?, ?, ?, 'TRANSFER_OUT', ?)
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_OUT', ?)
                 """,
-                (item_id, from_id, -outstanding, tx_note),
+                (
+                    item_id,
+                    from_id,
+                    -outstanding,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
             )
             # IN to Little (to)
             conn.execute(
                 """
-                INSERT INTO stock_transactions (item_id, location_id, qty_base, type, note)
-                VALUES (?, ?, ?, 'TRANSFER_IN', ?)
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_IN', ?)
                 """,
-                (item_id, to_id, outstanding, tx_note),
+                (
+                    item_id,
+                    to_id,
+                    outstanding,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
             )
 
             # Mark line fulfilled
@@ -1553,6 +1862,406 @@ def create_request_from_par(to_location: str, request_date: str, note: str = "")
             add_transfer_request_line(req_id, item, 0.0)
 
     return req_id
+
+
+def confirm_request_transfer(request_date: str, note: str = "") -> dict:
+    """
+    Create or refresh the Little Shop request for request_date, then fulfill only the
+    quantities that Keele can actually supply right now based on current stock.
+    """
+    init_db()
+    request_id = create_request_from_par("Little Shop", request_date, note=note or "Web request confirmation")
+
+    moved_lines = 0
+    moved_qty = 0.0
+
+    with get_conn() as conn:
+        req = conn.execute(
+            """
+            SELECT id, from_location_id, to_location_id, status
+            FROM transfer_requests
+            WHERE id = ?;
+            """,
+            (request_id,),
+        ).fetchone()
+
+        if req is None:
+            raise ValueError(f"transfer request {request_id} not found")
+
+        from_id = int(req["from_location_id"])
+        to_id = int(req["to_location_id"])
+
+        lines = conn.execute(
+            """
+            SELECT trl.id AS line_id,
+                   trl.item_id,
+                   i.name AS item,
+                   trl.requested_qty_base,
+                   trl.fulfilled_qty_base
+            FROM transfer_request_lines trl
+            JOIN items i ON i.id = trl.item_id
+            WHERE trl.request_id = ?
+            ORDER BY i.name;
+            """,
+            (request_id,),
+        ).fetchall()
+
+        if not lines:
+            raise ValueError("request has no lines")
+
+        for ln in lines:
+            requested = float(ln["requested_qty_base"] or 0.0)
+            fulfilled = float(ln["fulfilled_qty_base"] or 0.0)
+            outstanding = max(requested - fulfilled, 0.0)
+            if outstanding <= 1e-9:
+                continue
+
+            item_id = int(ln["item_id"])
+            item_name = str(ln["item"])
+            available = max(current_stock("Keele", item_name), 0.0)
+            transfer_qty = min(outstanding, available)
+            if transfer_qty <= 1e-9:
+                continue
+
+            tx_note = note.strip() or f"Transfer request {request_id} confirmed in web app"
+
+            conn.execute(
+                """
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_OUT', ?)
+                """,
+                (
+                    item_id,
+                    from_id,
+                    -transfer_qty,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
+            )
+
+            conn.execute(
+                """
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_IN', ?)
+                """,
+                (
+                    item_id,
+                    to_id,
+                    transfer_qty,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
+            )
+
+            conn.execute(
+                """
+                UPDATE transfer_request_lines
+                SET fulfilled_qty_base = fulfilled_qty_base + ?
+                WHERE id = ?;
+                """,
+                (transfer_qty, int(ln["line_id"])),
+            )
+
+            moved_lines += 1
+            moved_qty += transfer_qty
+
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) AS remaining
+            FROM transfer_request_lines
+            WHERE request_id = ?
+              AND (requested_qty_base - fulfilled_qty_base) > 1e-9;
+            """,
+            (request_id,),
+        ).fetchone()
+
+        new_status = "FULFILLED" if int(remaining["remaining"] or 0) == 0 else "PARTIAL"
+        conn.execute(
+            """
+            UPDATE transfer_requests
+            SET status = ?,
+                fulfilled_at = CASE WHEN ?='FULFILLED' THEN datetime('now') ELSE fulfilled_at END
+            WHERE id = ?;
+            """,
+            (new_status, new_status, request_id),
+        )
+
+    return {
+        "request_id": request_id,
+        "moved_lines": moved_lines,
+        "moved_qty": moved_qty,
+    }
+
+
+def confirm_transfer_request_by_id(request_id: int, note: str = "") -> dict:
+    init_db()
+
+    moved_lines = 0
+    moved_qty = 0.0
+
+    with get_conn() as conn:
+        req = conn.execute(
+            """
+            SELECT id, from_location_id, to_location_id, status
+            FROM transfer_requests
+            WHERE id = ?;
+            """,
+            (request_id,),
+        ).fetchone()
+
+        if req is None:
+            raise ValueError(f"transfer request {request_id} not found")
+
+        if str(req["status"]) == "CANCELLED":
+            raise ValueError("Cancelled requests cannot be confirmed.")
+
+        from_id = int(req["from_location_id"])
+        to_id = int(req["to_location_id"])
+
+        lines = conn.execute(
+            """
+            SELECT trl.id AS line_id,
+                   trl.item_id,
+                   i.name AS item,
+                   trl.requested_qty_base,
+                   trl.fulfilled_qty_base
+            FROM transfer_request_lines trl
+            JOIN items i ON i.id = trl.item_id
+            WHERE trl.request_id = ?
+            ORDER BY i.name;
+            """,
+            (request_id,),
+        ).fetchall()
+
+        if not lines:
+            raise ValueError("request has no lines")
+
+        for ln in lines:
+            requested = float(ln["requested_qty_base"] or 0.0)
+            fulfilled = float(ln["fulfilled_qty_base"] or 0.0)
+            outstanding = max(requested - fulfilled, 0.0)
+            if outstanding <= 1e-9:
+                continue
+
+            item_id = int(ln["item_id"])
+            item_name = str(ln["item"])
+            available = max(current_stock("Keele", item_name), 0.0)
+            transfer_qty = min(outstanding, available)
+            if transfer_qty <= 1e-9:
+                continue
+
+            tx_note = note.strip() or f"Transfer request {request_id} confirmed"
+
+            conn.execute(
+                """
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_OUT', ?)
+                """,
+                (
+                    item_id,
+                    from_id,
+                    -transfer_qty,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
+            )
+
+            conn.execute(
+                """
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, 'TRANSFER_IN', ?)
+                """,
+                (
+                    item_id,
+                    to_id,
+                    transfer_qty,
+                    get_item_cost_per_unit(item_id),
+                    request_id,
+                    tx_note,
+                ),
+            )
+
+            conn.execute(
+                """
+                UPDATE transfer_request_lines
+                SET fulfilled_qty_base = fulfilled_qty_base + ?
+                WHERE id = ?;
+                """,
+                (transfer_qty, int(ln["line_id"])),
+            )
+
+            moved_lines += 1
+            moved_qty += transfer_qty
+
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) AS remaining
+            FROM transfer_request_lines
+            WHERE request_id = ?
+              AND (requested_qty_base - fulfilled_qty_base) > 1e-9;
+            """,
+            (request_id,),
+        ).fetchone()
+
+        new_status = "FULFILLED" if int(remaining["remaining"] or 0) == 0 else "PARTIAL"
+        conn.execute(
+            """
+            UPDATE transfer_requests
+            SET status = ?,
+                fulfilled_at = CASE WHEN ?='FULFILLED' THEN datetime('now') ELSE fulfilled_at END
+            WHERE id = ?;
+            """,
+            (new_status, new_status, request_id),
+        )
+
+    return {
+        "request_id": request_id,
+        "moved_lines": moved_lines,
+        "moved_qty": moved_qty,
+    }
+
+
+def cancel_transfer_request(request_id: int) -> None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT status FROM transfer_requests WHERE id = ?;",
+            (int(request_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"transfer request {request_id} not found")
+        if str(row["status"]) == "FULFILLED":
+            raise ValueError("Fulfilled requests cannot be cancelled.")
+        conn.execute(
+            "UPDATE transfer_requests SET status = 'CANCELLED' WHERE id = ?;",
+            (int(request_id),),
+        )
+
+
+def get_transfer_request(request_id: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT tr.id,
+                   lf.name AS from_location,
+                   lt.name AS to_location,
+                   tr.request_date,
+                   tr.status,
+                   tr.note,
+                   tr.created_at,
+                   tr.fulfilled_at
+            FROM transfer_requests tr
+            JOIN locations lf ON lf.id = tr.from_location_id
+            JOIN locations lt ON lt.id = tr.to_location_id
+            WHERE tr.id = ?;
+            """,
+            (int(request_id),),
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"transfer request {request_id} not found")
+    return row
+
+
+def get_transfer_request_lines(request_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT trl.id,
+                   i.id AS item_id,
+                   i.name,
+                   i.category,
+                   i.base_unit,
+                   trl.requested_qty_base,
+                   trl.fulfilled_qty_base
+            FROM transfer_request_lines trl
+            JOIN items i ON i.id = trl.item_id
+            WHERE trl.request_id = ?
+            ORDER BY LOWER(i.category), LOWER(i.name);
+            """,
+            (int(request_id),),
+        ).fetchall()
+
+
+def get_transfer_request_activity(request_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT st.id,
+                   st.ts,
+                   st.type,
+                   ABS(st.qty_base) AS qty_base,
+                   st.note,
+                   i.name AS item_name,
+                   l.name AS location_name
+            FROM stock_transactions st
+            JOIN items i ON i.id = st.item_id
+            JOIN locations l ON l.id = st.location_id
+            WHERE st.transfer_request_id = ?
+            ORDER BY datetime(st.ts) DESC, st.id DESC;
+            """,
+            (int(request_id),),
+        ).fetchall()
+
+
+def recent_transfer_requests(limit: int = 12):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT tr.id,
+                   lf.name AS from_location,
+                   lt.name AS to_location,
+                   tr.request_date,
+                   tr.status,
+                   tr.note,
+                   tr.created_at,
+                   tr.fulfilled_at,
+                   COALESCE(SUM(trl.requested_qty_base), 0) AS requested_qty,
+                   COALESCE(SUM(trl.fulfilled_qty_base), 0) AS fulfilled_qty,
+                   COUNT(trl.id) AS line_count
+            FROM transfer_requests tr
+            JOIN locations lf ON lf.id = tr.from_location_id
+            JOIN locations lt ON lt.id = tr.to_location_id
+            LEFT JOIN transfer_request_lines trl ON trl.request_id = tr.id
+            GROUP BY tr.id, lf.name, lt.name, tr.request_date, tr.status, tr.note, tr.created_at, tr.fulfilled_at
+            ORDER BY datetime(tr.created_at) DESC, tr.id DESC
+            LIMIT ?;
+            """,
+            (int(limit),),
+        ).fetchall()
 
 
 def outstanding_request_qty(from_location: str = "Keele", to_location: str = "Little Shop") -> dict[str, float]:
@@ -1679,6 +2388,361 @@ def generate_supplier_order(request_location_name="Little Shop", source_location
 
     return results
 
+
+def create_supplier_order(order_date: str, note: str = "") -> int:
+    init_db()
+    rows = generate_supplier_order()
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO supplier_orders (order_date, status, note)
+            VALUES (?, 'DRAFT', ?);
+            """,
+            (order_date, note or ""),
+        )
+        order_id = int(cur.lastrowid)
+
+        for row in rows:
+            conn.execute(
+                """
+                INSERT INTO supplier_order_lines (
+                    order_id,
+                    item_id,
+                    supplier_name,
+                    ordered_qty_base,
+                    received_qty_base,
+                    unit_cost
+                )
+                VALUES (?, ?, ?, ?, 0, ?);
+                """,
+                (
+                    order_id,
+                    int(row["item_id"]),
+                    str(row["supplier"] or "Unknown"),
+                    float(row["supplier_order_qty"] or 0.0),
+                    float(get_item_cost_per_unit(int(row["item_id"]))),
+                ),
+            )
+
+    return order_id
+
+
+def list_supplier_orders(status: str | None = None, limit: int = 20):
+    with get_conn() as conn:
+        params: list[object] = []
+        where = ""
+        if status:
+            where = "WHERE so.status = ?"
+            params.append(status)
+        return conn.execute(
+            f"""
+            SELECT so.id,
+                   so.order_date,
+                   so.status,
+                   so.note,
+                   so.created_at,
+                   so.ordered_at,
+                   so.received_at,
+                   COUNT(sol.id) AS line_count,
+                   COALESCE(SUM(sol.ordered_qty_base), 0) AS ordered_qty,
+                   COALESCE(SUM(sol.received_qty_base), 0) AS received_qty
+            FROM supplier_orders so
+            LEFT JOIN supplier_order_lines sol ON sol.order_id = so.id
+            {where}
+            GROUP BY so.id, so.order_date, so.status, so.note, so.created_at, so.ordered_at, so.received_at
+            ORDER BY datetime(so.created_at) DESC, so.id DESC
+            LIMIT ?;
+            """,
+            (*params, int(limit)),
+        ).fetchall()
+
+
+def get_supplier_order(order_id: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, order_date, status, note, created_at, ordered_at, received_at
+            FROM supplier_orders
+            WHERE id = ?;
+            """,
+            (int(order_id),),
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Supplier order {order_id} not found.")
+    return row
+
+
+def get_supplier_order_lines(order_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT sol.id,
+                   sol.order_id,
+                   sol.supplier_name,
+                   sol.ordered_qty_base,
+                   sol.received_qty_base,
+                   sol.unit_cost,
+                   i.id AS item_id,
+                   i.name,
+                   i.category,
+                   i.base_unit
+            FROM supplier_order_lines sol
+            JOIN items i ON i.id = sol.item_id
+            WHERE sol.order_id = ?
+            ORDER BY LOWER(sol.supplier_name), LOWER(i.category), LOWER(i.name);
+            """,
+            (int(order_id),),
+        ).fetchall()
+
+
+def create_supplier_invoice(
+    order_id: int,
+    original_filename: str,
+    stored_filename: str,
+    content_type: str = "",
+    invoice_reference: str = "",
+    supplier_name: str = "",
+    note: str = "",
+) -> int:
+    get_supplier_order(order_id)
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO supplier_invoices (
+                order_id,
+                invoice_reference,
+                supplier_name,
+                original_filename,
+                stored_filename,
+                content_type,
+                note
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                int(order_id),
+                invoice_reference.strip(),
+                supplier_name.strip(),
+                original_filename.strip(),
+                stored_filename.strip(),
+                content_type.strip(),
+                note.strip(),
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def list_supplier_invoices(order_id: int | None = None, limit: int = 50):
+    with get_conn() as conn:
+        if order_id is None:
+            return conn.execute(
+                """
+                SELECT si.id,
+                       si.order_id,
+                       si.invoice_reference,
+                       si.supplier_name,
+                       si.original_filename,
+                       si.stored_filename,
+                       si.content_type,
+                       si.note,
+                       si.review_status,
+                       si.uploaded_at,
+                       si.reviewed_at,
+                       so.order_date,
+                       so.status AS order_status
+                FROM supplier_invoices si
+                JOIN supplier_orders so ON so.id = si.order_id
+                ORDER BY datetime(si.uploaded_at) DESC, si.id DESC
+                LIMIT ?;
+                """,
+                (int(limit),),
+            ).fetchall()
+
+        return conn.execute(
+            """
+            SELECT si.id,
+                   si.order_id,
+                   si.invoice_reference,
+                   si.supplier_name,
+                   si.original_filename,
+                   si.stored_filename,
+                   si.content_type,
+                   si.note,
+                   si.review_status,
+                   si.uploaded_at,
+                   si.reviewed_at,
+                   so.order_date,
+                   so.status AS order_status
+            FROM supplier_invoices si
+            JOIN supplier_orders so ON so.id = si.order_id
+            WHERE si.order_id = ?
+            ORDER BY datetime(si.uploaded_at) DESC, si.id DESC
+            LIMIT ?;
+            """,
+            (int(order_id), int(limit)),
+        ).fetchall()
+
+
+def get_supplier_invoice(invoice_id: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT si.id,
+                   si.order_id,
+                   si.invoice_reference,
+                   si.supplier_name,
+                   si.original_filename,
+                   si.stored_filename,
+                   si.content_type,
+                   si.note,
+                   si.review_status,
+                   si.uploaded_at,
+                   si.reviewed_at,
+                   so.order_date,
+                   so.status AS order_status
+            FROM supplier_invoices si
+            JOIN supplier_orders so ON so.id = si.order_id
+            WHERE si.id = ?;
+            """,
+            (int(invoice_id),),
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Supplier invoice {invoice_id} not found.")
+    return row
+
+
+def mark_supplier_invoice_reviewed(invoice_id: int, invoice_reference: str = "", note: str = "") -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE supplier_invoices
+            SET invoice_reference = CASE WHEN ? = '' THEN invoice_reference ELSE ? END,
+                note = CASE WHEN ? = '' THEN note ELSE ? END,
+                review_status = 'REVIEWED',
+                reviewed_at = datetime('now')
+            WHERE id = ?;
+            """,
+            (
+                invoice_reference.strip(),
+                invoice_reference.strip(),
+                note.strip(),
+                note.strip(),
+                int(invoice_id),
+            ),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"Supplier invoice {invoice_id} not found.")
+
+
+def mark_supplier_order_ordered(order_id: int) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE supplier_orders
+            SET status = 'ORDERED',
+                ordered_at = datetime('now')
+            WHERE id = ?
+              AND status = 'DRAFT';
+            """,
+            (int(order_id),),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError("Only draft supplier orders can be marked as ordered.")
+
+
+def cancel_supplier_order(order_id: int) -> None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT status FROM supplier_orders WHERE id = ?;",
+            (int(order_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Supplier order {order_id} not found.")
+        if str(row["status"]) == "RECEIVED":
+            raise ValueError("Received supplier orders cannot be cancelled.")
+        conn.execute(
+            "UPDATE supplier_orders SET status = 'CANCELLED' WHERE id = ?;",
+            (int(order_id),),
+        )
+
+
+def receive_supplier_order(order_id: int, note: str = "") -> dict:
+    order = get_supplier_order(order_id)
+    if str(order["status"]) == "CANCELLED":
+        raise ValueError("Cancelled supplier orders cannot be received.")
+
+    received_lines = 0
+    received_qty = 0.0
+    tx_note = note.strip() or f"Supplier order {order_id} received"
+    keele_id = get_location_id("Keele")
+
+    with get_conn() as conn:
+        lines = conn.execute(
+            """
+            SELECT id, item_id, ordered_qty_base, received_qty_base, unit_cost
+            FROM supplier_order_lines
+            WHERE order_id = ?;
+            """,
+            (int(order_id),),
+        ).fetchall()
+        if not lines:
+            raise ValueError("Supplier order has no lines.")
+
+        for line in lines:
+            outstanding = float(line["ordered_qty_base"] or 0.0) - float(line["received_qty_base"] or 0.0)
+            if outstanding <= 1e-9:
+                continue
+
+            item_id = int(line["item_id"])
+            conn.execute(
+                """
+                INSERT INTO stock_transactions (
+                    item_id,
+                    location_id,
+                    qty_base,
+                    cost_per_unit_at_time,
+                    transfer_request_id,
+                    type,
+                    note
+                )
+                VALUES (?, ?, ?, ?, NULL, 'RECEIVE', ?);
+                """,
+                (
+                    item_id,
+                    keele_id,
+                    outstanding,
+                    float(line["unit_cost"] or 0.0),
+                    tx_note,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE supplier_order_lines
+                SET received_qty_base = ordered_qty_base
+                WHERE id = ?;
+                """,
+                (int(line["id"]),),
+            )
+            received_lines += 1
+            received_qty += outstanding
+
+        conn.execute(
+            """
+            UPDATE supplier_orders
+            SET status = 'RECEIVED',
+                received_at = datetime('now'),
+                ordered_at = COALESCE(ordered_at, datetime('now'))
+            WHERE id = ?;
+            """,
+            (int(order_id),),
+        )
+
+    return {
+        "order_id": int(order_id),
+        "received_lines": received_lines,
+        "received_qty": received_qty,
+    }
+
 def export_supplier_order_to_csv(rows, csv_path):
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -1723,6 +2787,7 @@ def get_request_lines(request_id: int):
             """
             SELECT i.name AS item,
                    i.base_unit AS unit,
+                   i.cost_per_unit AS cost_per_unit,
                    trl.requested_qty_base AS requested,
                    trl.fulfilled_qty_base AS fulfilled,
                    (trl.requested_qty_base - trl.fulfilled_qty_base) AS outstanding
@@ -1738,7 +2803,7 @@ def get_request_lines(request_id: int):
 def get_item_by_id(item_id: int):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, base_unit FROM items WHERE id = ?;",
+            "SELECT id, name, base_unit, cost_per_unit FROM items WHERE id = ?;",
             (item_id,),
         ).fetchone()
     if row is None:
@@ -1848,6 +2913,12 @@ def import_items_and_par_levels(csv_path):
             )
             little_par_raw = normalized_row.get("par_little_shop", "")
             keele_par_raw = normalized_row.get("par_keele", "")
+            cost_per_unit_raw = (
+                normalized_row.get("cost_per_unit")
+                or normalized_row.get("unit_cost")
+                or normalized_row.get("cost")
+                or "0"
+            )
 
             # Ignore fully blank/spacer rows from Sheets exports.
             if not any([name, category, base_unit_raw, supplier_name, reference_raw, little_par_raw, keele_par_raw]):
@@ -1864,16 +2935,21 @@ def import_items_and_par_levels(csv_path):
                 base_unit = normalize_base_unit(base_unit_raw)
             except ValueError as exc:
                 raise ValueError(f"Line {line_no}: {exc} for '{name}'") from exc
+            try:
+                cost_per_unit = normalize_cost_per_unit(cost_per_unit_raw)
+            except ValueError as exc:
+                raise ValueError(f"Line {line_no}: {exc} for '{name}'") from exc
 
             cur.execute("""
-                INSERT INTO items (name, category, base_unit, supplier_id)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO items (name, category, base_unit, cost_per_unit, supplier_id)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(name)
                 DO UPDATE SET
                     category = excluded.category,
                     base_unit = excluded.base_unit,
+                    cost_per_unit = excluded.cost_per_unit,
                     supplier_id = excluded.supplier_id
-            """, (name, category, base_unit, None))
+            """, (name, category, base_unit, cost_per_unit, None))
 
             cur.execute("SELECT id FROM items WHERE name = ?", (name,))
             item_id = cur.fetchone()["id"]
@@ -2197,27 +3273,6 @@ def import_count_from_sheet(location: str, count_date: str):
         add_count_line(count_id, item, qty)
 
     return count_id
-
-
-def export_pick_list_to_sheet(rows):
-    ss = get_spreadsheet()
-
-    try:
-        sheet = ss.worksheet("Pick List")
-    except:
-        sheet = ss.add_worksheet(title="Pick List", rows="100", cols="10")
-
-    sheet.clear()
-
-    # headers
-    sheet.append_row(["Item", "Pick Qty", "Unit"])
-
-    for r in rows:
-        sheet.append_row([
-            r["name"],
-            round(r["pick_qty"], 2),
-            r["base_unit"],
-        ])
 
 
 def export_pick_list_to_sheet(rows):

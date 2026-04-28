@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Users | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Admin only</p>
+    <h2>User management</h2>
+    <p>Create accounts, change roles, deactivate users, and reset passwords.</p>
+  </section>
+
+  <section class="panel">
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+    {% if success_message %}
+      <div class="success-box">{{ success_message }}</div>
+    {% endif %}
+
+    <p class="eyebrow">Create account</p>
+    <h2>New user</h2>
+    <form method="post" action="/admin/users" class="form-grid">
+      <label for="username">
+        Username
+        <input id="username" name="username" type="text" required>
+      </label>
+      <label for="password">
+        Password
+        <input id="password" name="password" type="password" required>
+      </label>
+      <label for="role">
+        Role
+        <select id="role" name="role">
+          {% for role in valid_roles %}
+            <option value="{{ role }}">{{ role }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Create user</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Existing accounts</p>
+    <h2>Team users</h2>
+    <div class="category-list">
+      {% for row in user_rows %}
+        <article class="category-card">
+          <h3 style="margin:0 0 6px;">{{ row["username"] }}</h3>
+          <p class="eyebrow">Role: {{ row["role"] }} | {% if row["is_active"] %}Active{% else %}Inactive{% endif %}</p>
+
+          <form method="post" action="/admin/users/{{ row['id'] }}/role" class="form-grid">
+            <label>
+              Update role
+              <select name="role">
+                {% for role in valid_roles %}
+                  <option value="{{ role }}" {% if row["role"] == role %}selected{% endif %}>{{ role }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit">Save role</button>
+          </form>
+
+          <form method="post" action="/admin/users/{{ row['id'] }}/active" class="form-grid">
+            <input type="hidden" name="is_active" value="{% if row['is_active'] %}0{% else %}1{% endif %}">
+            <button type="submit">{% if row["is_active"] %}Deactivate{% else %}Reactivate{% endif %}</button>
+          </form>
+
+          <form method="post" action="/admin/users/{{ row['id'] }}/password" class="form-grid">
+            <label>
+              Reset password
+              <input name="password" type="password" minlength="8" required>
+            </label>
+            <button type="submit">Update password</button>
+          </form>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

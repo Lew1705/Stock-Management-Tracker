@@ -29,6 +29,10 @@
       <div class="metric-label">Can fulfill now</div>
       <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_fulfill_qty) }}</div>
     </article>
+    <article class="metric">
+      <div class="metric-label">Estimated value</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_request_value) }}</div>
+    </article>
   </section>
 
   <section class="panel">
@@ -46,13 +50,45 @@
   </section>
 
   <section class="panel">
+    <p class="eyebrow">Once the stock has been taken round</p>
+    <h2>Confirm the Little Shop transfer</h2>
+    <p>
+      This records the stock movement from Keele to Little Shop for the items Keele can fulfill right now.
+    </p>
+
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+
+    {% if success_message %}
+      <div class="success-box">{{ success_message }}</div>
+    {% endif %}
+
+    <form method="post" action="/request-lists/confirm" class="form-grid">
+      <input type="hidden" name="count_date" value="{{ count_date }}">
+
+      <label for="note">
+        Transfer note
+        <input id="note" name="note" type="text" value="Taken to Little Shop on {{ count_date }}">
+      </label>
+
+      <button type="submit">Confirm stock taken to Little Shop</button>
+    </form>
+  </section>
+
+  <section class="panel">
     <p class="eyebrow">Generated from saved counts and par levels</p>
     <h2>Take to Little Shop</h2>
 
     <div class="actions-row" style="margin-top:0;">
-      <a class="button-link" href="/counts?location=Little+Shop&date={{ count_date }}">Back to Little Shop count</a>
-      <a class="button-link" href="/shopping-lists?date={{ count_date }}">View supplier shopping list</a>
+      <a class="button-link" href="/counts/little-shop?date={{ count_date }}">Back to Little Shop count</a>
+      <a class="button-link" href="/deliveries/new">Receive supplier invoice</a>
+      <a class="button-link" href="/shopping-lists?date={{ count_date }}">View Keele shopping list</a>
     </div>
+
+    {% if request_id %}
+      <div class="success-box">Saved transfer request {{ request_id }} total value: {{ '%.2f'|format(request_value or 0) }}</div>
+    {% endif %}
 
     {% if grouped_rows %}
       <div class="category-list">
@@ -71,6 +107,7 @@
                   <th>{{ source_location }} stock</th>
                   <th>Can take now</th>
                   <th>Still short</th>
+                  <th>Est. value</th>
                   <th>Unit</th>
                 </tr>
               </thead>
@@ -84,6 +121,7 @@
                     <td>{{ '%.2f'|format(row["source_available_qty"]) }}</td>
                     <td>{{ '%.2f'|format(row["fulfill_qty"]) }}</td>
                     <td>{{ '%.2f'|format(row["source_shortfall"]) }}</td>
+                    <td>{{ '%.2f'|format(row["estimated_value"]) }}</td>
                     <td>{{ row["base_unit"] }}</td>
                   </tr>
                 {% endfor %}

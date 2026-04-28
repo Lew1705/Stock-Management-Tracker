@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Paper invoice receiving for Keele</p>
+    <h2>Receive supplier invoices</h2>
+    <p>
+      When a paper invoice arrives, use the matching supplier order to receive the stock into Keele.
+      This keeps ordering, receiving, stock, and finance tied together in one workflow.
+    </p>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Receiving location</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ location }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Today</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ delivery_date }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Orders waiting for invoice</div>
+      <div class="metric-value">{{ ordered_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Draft orders not yet placed</div>
+      <div class="metric-value">{{ draft_count }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Recent invoice uploads</div>
+      <div class="metric-value">{{ invoice_count }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Recommended workflow</p>
+    <h2>Use the invoice against a supplier order</h2>
+    <p>
+      The best flow is: create the order from the Keele shopping list, place the order, then when the
+      paper invoice arrives open that order and mark it as received.
+    </p>
+
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+
+    {% if info_message %}
+      <div class="success-box">{{ info_message }}</div>
+    {% endif %}
+
+    <form method="post" action="/deliveries" enctype="multipart/form-data" class="form-grid">
+      <label for="order_id">
+        Supplier order
+        <select id="order_id" name="order_id" required>
+          <option value="">Choose the supplier order on the invoice</option>
+          {% for row in ordered_orders %}
+            <option value="{{ row['id'] }}">
+              Order {{ row["id"] }} - {{ row["order_date"] }} - {{ '%.2f'|format(row["ordered_qty"]) }} units
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label for="invoice_reference">
+        Invoice reference
+        <input id="invoice_reference" name="invoice_reference" type="text" placeholder="Invoice number or supplier reference">
+      </label>
+
+      <label for="supplier_name">
+        Supplier name
+        <input id="supplier_name" name="supplier_name" type="text" placeholder="Booker, Bradwall Bakehouse, Morrisons">
+      </label>
+
+      <label for="note">
+        Intake note
+        <input id="note" name="note" type="text" placeholder="Paper invoice uploaded for review">
+      </label>
+
+      <label for="invoice_file">
+        Invoice file
+        <input id="invoice_file" name="invoice_file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+      </label>
+
+      <button type="submit">Upload invoice for review</button>
+    </form>
+
+    <div class="actions-row">
+      <a class="button-link primary" href="/supplier-orders">Open supplier orders</a>
+      <a class="button-link" href="/shopping-lists">Open Keele shopping list</a>
+      <a class="button-link" href="/request-lists">Open Little Shop requests</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Step 1A</p>
+    <h2>Recent uploaded invoices</h2>
+    {% if recent_invoices %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Order</th>
+            <th>Reference</th>
+            <th>Status</th>
+            <th>Uploaded</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in recent_invoices %}
+            <tr>
+              <td>{{ row["id"] }}</td>
+              <td>{{ row["order_id"] }}</td>
+              <td>{{ row["invoice_reference"] or "Not entered" }}</td>
+              <td>{{ row["review_status"] }}</td>
+              <td>{{ row["uploaded_at"] }}</td>
+              <td><a href="/invoices/{{ row['id'] }}">Review upload</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No invoice uploads yet.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Step 1</p>
+    <h2>Orders waiting for an invoice</h2>
+    {% if ordered_orders %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Order date</th>
+            <th>Ordered qty</th>
+            <th>Received qty</th>
+            <th>Lines</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ordered_orders %}
+            <tr>
+              <td>{{ row["id"] }}</td>
+              <td>{{ row["order_date"] }}</td>
+              <td>{{ '%.2f'|format(row["ordered_qty"]) }}</td>
+              <td>{{ '%.2f'|format(row["received_qty"]) }}</td>
+              <td>{{ row["line_count"] }}</td>
+              <td><a href="/supplier-orders/{{ row['id'] }}">Open invoice receipt</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">
+        No placed supplier orders are waiting to be received. When an invoice arrives, it should appear here after the order has been marked as ordered.
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Step 0</p>
+    <h2>Draft orders still to place</h2>
+    <p>
+      If the invoice is for stock that was never turned into an order first, start by reviewing the current draft or creating a new supplier order from the Keele shopping list.
+    </p>
+    {% if draft_orders %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Order date</th>
+            <th>Ordered qty</th>
+            <th>Lines</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in draft_orders %}
+            <tr>
+              <td>{{ row["id"] }}</td>
+              <td>{{ row["order_date"] }}</td>
+              <td>{{ '%.2f'|format(row["ordered_qty"]) }}</td>
+              <td>{{ row["line_count"] }}</td>
+              <td><a href="/supplier-orders/{{ row['id'] }}">Review draft order</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">
+        No draft supplier orders exist right now.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -58,14 +58,6 @@ Add simple forms for:
 - damage
 - stock corrections
 
-### 6. User Accounts
-
-Add login and roles:
-
-- staff
-- manager
-- admin
-
-### 7. Postgres Migration
+### 6. Postgres Migration
 
 Move production data from SQLite to Postgres before the app becomes heavily multi-user.

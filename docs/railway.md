@@ -25,7 +25,7 @@ It serves pages where staff can:
 - enter stock counts
 - view Little Shop request lists
 - view Keele supplier shopping lists
-- trigger the legacy daily workflow with a shared access code
+- sign in and run the daily workflow
 
 ## Railway variables
 
@@ -33,7 +33,7 @@ Set these in Railway:
 
 ```text
 STOCK_TIMEZONE=Europe/London
-STOCK_WEB_TOKEN=choose-a-shared-secret
+STOCK_SECRET_KEY=choose-a-long-random-secret
 STOCK_SHEET_ID=your-google-sheet-id
 GOOGLE_SERVICE_ACCOUNT_JSON={paste the full Google service account JSON here}
 ```
@@ -59,10 +59,11 @@ Use one Railway service from this repo with one mounted volume.
 1. Push this repo to GitHub.
 2. Create a new Railway project from the repo.
 3. Add a volume and mount it.
-4. Add the shared variables.
+4. Add the environment variables.
 5. Redeploy.
 6. Open the service URL in a browser.
-7. Run the workflow manually from the page.
+7. Create the first login with `python -m stock.cli create-user --username admin --role admin`.
+8. Run the workflow manually from the page.
 
 ## Moving your existing database
 
@@ -90,4 +91,4 @@ The practical workflow is:
 - managers use the request/shopping list pages
 - the SQLite database lives on the Railway volume
 
-If you later want heavier multi-user access, the next step is Postgres plus login/roles.
+If you later want heavier multi-user access, the next step is Postgres.

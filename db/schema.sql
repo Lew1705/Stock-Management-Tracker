@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS items (
     name TEXT NOT NULL UNIQUE,
     category TEXT NOT NULL,
     base_unit TEXT NOT NULL,
+    cost_per_unit REAL NOT NULL DEFAULT 0,
     supplier_id INTEGER,
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
@@ -31,10 +32,13 @@ CREATE TABLE IF NOT EXISTS stock_transactions(
     item_id INTEGER NOT NULL,
     location_id INTEGER NOT NULL,
     qty_base REAL NOT NULL, 
+    cost_per_unit_at_time REAL NOT NULL DEFAULT 0,
+    transfer_request_id INTEGER,
     type TEXT NOT NULL CHECK (type IN ('RECEIVE','TRANSFER_IN','TRANSFER_OUT','WASTE','ADJUSTMENT')),
     note TEXT,
     FOREIGN KEY (item_id) REFERENCES items(id),
-    FOREIGN KEY (location_id) REFERENCES locations(id)
+    FOREIGN KEY (location_id) REFERENCES locations(id),
+    FOREIGN KEY (transfer_request_id) REFERENCES transfer_requests(id)
 );
 
 CREATE TABLE IF NOT EXISTS stock_counts (
@@ -139,4 +143,59 @@ CREATE TABLE IF NOT EXISTS run_history (
 
 CREATE INDEX IF NOT EXISTS ix_run_history_started_at
 ON run_history(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'staff',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS supplier_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ORDERED', 'RECEIVED', 'CANCELLED')),
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ordered_at TEXT,
+    received_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS supplier_order_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    supplier_name TEXT NOT NULL,
+    ordered_qty_base REAL NOT NULL,
+    received_qty_base REAL NOT NULL DEFAULT 0,
+    unit_cost REAL NOT NULL DEFAULT 0,
+    FOREIGN KEY(order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+    FOREIGN KEY(item_id) REFERENCES items(id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_supplier_orders_status_date
+ON supplier_orders(status, order_date);
+
+CREATE INDEX IF NOT EXISTS ix_supplier_order_lines_order
+ON supplier_order_lines(order_id);
+
+CREATE TABLE IF NOT EXISTS supplier_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    invoice_reference TEXT NOT NULL DEFAULT '',
+    supplier_name TEXT NOT NULL DEFAULT '',
+    original_filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    review_status TEXT NOT NULL DEFAULT 'UPLOADED' CHECK (review_status IN ('UPLOADED', 'REVIEWED')),
+    uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at TEXT,
+    FOREIGN KEY(order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_supplier_invoices_order
+ON supplier_invoices(order_id, uploaded_at DESC);
 

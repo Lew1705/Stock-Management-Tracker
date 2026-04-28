@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}History | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Operations reporting</p>
+    <h2>Recent workflow history</h2>
+    <p>Review daily runs, transfer activity, and supplier orders in one place.</p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Daily runs</p>
+    <h2>Run history</h2>
+    {% if run_rows %}
+      <div class="history-list">
+        {% for row in run_rows %}
+          <article class="history-item">
+            <div class="status {% if row['status'] == 'SUCCESS' %}status-success{% else %}status-failed{% endif %}">
+              {{ row["status"] }}
+            </div>
+            <p class="history-meta">{{ row["run_type"] }} for {{ row["run_date"] }}</p>
+            <pre>{{ (row["output"] or "").strip() or "No output recorded." }}</pre>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">No run history found.</div>
+    {% endif %}
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <p class="eyebrow">Transfers</p>
+      <h2>Recent transfer requests</h2>
+      {% if transfer_rows %}
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Status</th><th>Date</th><th>Progress</th></tr>
+          </thead>
+          <tbody>
+            {% for row in transfer_rows %}
+              <tr>
+                <td><a href="/transfers/{{ row['id'] }}">{{ row["id"] }}</a></td>
+                <td>{{ row["status"] }}</td>
+                <td>{{ row["request_date"] }}</td>
+                <td>{{ '%.2f'|format(row["fulfilled_qty"]) }} / {{ '%.2f'|format(row["requested_qty"]) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No transfer requests found.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Supplier orders</p>
+      <h2>Recent purchasing</h2>
+      {% if order_rows %}
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Status</th><th>Date</th><th>Received</th></tr>
+          </thead>
+          <tbody>
+            {% for row in order_rows %}
+              <tr>
+                <td><a href="/supplier-orders/{{ row['id'] }}">{{ row["id"] }}</a></td>
+                <td>{{ row["status"] }}</td>
+                <td>{{ row["order_date"] }}</td>
+                <td>{{ '%.2f'|format(row["received_qty"]) }} / {{ '%.2f'|format(row["ordered_qty"]) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No supplier orders found.</div>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Transfers | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Transfer workflow</p>
+    <h2>Little Shop transfer requests</h2>
+    <p>Track what has been requested, what has been fulfilled, and which transfer requests still need action.</p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Recent requests</p>
+    <h2>Transfer history</h2>
+    {% if transfer_rows %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Requested</th>
+            <th>Fulfilled</th>
+            <th>Lines</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in transfer_rows %}
+            <tr>
+              <td>{{ row["id"] }}</td>
+              <td>{{ row["request_date"] }}</td>
+              <td>{{ row["status"] }} ({{ row["progress_pct"] }}%)</td>
+              <td>{{ '%.2f'|format(row["requested_qty"]) }}</td>
+              <td>{{ '%.2f'|format(row["fulfilled_qty"]) }}</td>
+              <td>{{ row["line_count"] }}</td>
+              <td><a href="/transfers/{{ row['id'] }}">Open</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No transfer requests found yet.</div>
+    {% endif %}
+  </section>
+{% endblock %}

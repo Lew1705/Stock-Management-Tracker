@@ -1,15 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Counts | Stock Tracker{% endblock %}
+{% block title %}{{ page_title }} | Stock Tracker{% endblock %}
 
 {% block content %}
   <section class="hero">
-    <p class="eyebrow">Count stock in the app</p>
-    <h2>Stock count entry</h2>
-    <p>
-      This is the first step away from Google Sheets for daily counting. Pick a location and date,
-      enter the quantities, and save them straight into the database.
-    </p>
+    <p class="eyebrow">{{ hero_eyebrow }}</p>
+    <h2>{{ hero_heading }}</h2>
+    <p>{{ hero_text }}</p>
   </section>
 
   <section class="metrics">
@@ -32,7 +29,7 @@
   </section>
 
   <section class="panel">
-    <p class="eyebrow">Choose the count</p>
+    <p class="eyebrow">Choose the date</p>
     <h2>Count details</h2>
 
     {% if error_message %}
@@ -42,8 +39,8 @@
     {% if success_message %}
       <div class="success-box">{{ success_message }}</div>
       <div class="actions-row">
-        <a class="button-link primary" href="/shopping-lists?date={{ count_date }}">Generate supplier shopping list</a>
-        <a class="button-link" href="/request-lists?date={{ count_date }}">Generate Little Shop request list</a>
+        <a class="button-link primary" href="{{ primary_link_href }}">{{ primary_link_label }}</a>
+        <a class="button-link" href="{{ secondary_link_href }}">{{ secondary_link_label }}</a>
       </div>
     {% endif %}
 
@@ -51,16 +48,7 @@
       <div class="error-box">This count has already been reconciled, so it is read-only.</div>
     {% endif %}
 
-    <form method="get" action="/counts" class="form-grid">
-      <label for="location">
-        Location
-        <select id="location" name="location">
-          {% for option in locations %}
-            <option value="{{ option }}" {% if option == location %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </label>
-
+    <form method="get" action="{{ count_route }}" class="form-grid">
       <label for="date">
         Count date
         <input id="date" name="date" type="date" value="{{ count_date }}" required>
@@ -72,7 +60,7 @@
 
   <section class="panel">
     <p class="eyebrow">Enter quantities</p>
-    <h2>{{ location }} stock count</h2>
+    <h2>{{ hero_heading }}</h2>
 
     <form method="post" action="/counts" class="form-grid">
       <input type="hidden" name="location" value="{{ location }}">
@@ -80,8 +68,8 @@
 
       <div class="actions-row" style="margin-top:0;">
         <button type="submit" {% if is_reconciled %}disabled{% endif %}>Save count</button>
-        <a class="button-link" href="/shopping-lists?date={{ count_date }}">View supplier shopping list</a>
-        <a class="button-link" href="/request-lists?date={{ count_date }}">View Little Shop request list</a>
+        <a class="button-link" href="{{ primary_link_href }}">{{ primary_link_label }}</a>
+        <a class="button-link" href="{{ secondary_link_href }}">{{ secondary_link_label }}</a>
       </div>
 
       <div class="category-list">

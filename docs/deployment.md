@@ -35,9 +35,9 @@ Use these on the host machine:
 - `PORT=5000`
 - `STOCK_TIMEZONE=Europe/London`
 - `STOCK_DB_PATH=C:\stock-management\stock.db`
+- `STOCK_SECRET_KEY=choose-a-long-random-secret`
 - `GOOGLE_APPLICATION_CREDENTIALS=C:\stock-management\secrets\creds.json`
 - `STOCK_SHEET_ID=your-google-sheet-id`
-- `STOCK_WEB_TOKEN=choose-a-secret`
 
 ## Suggested folder layout on the host
 
@@ -83,4 +83,4 @@ For now, deploy to an always-on machine or Railway first.
 
 That gets the app off your laptop quickly with minimal code risk.
 
-After that, if staff rely on it daily, prioritise Postgres, login, and better audit/history screens.
+After that, if staff rely on it daily, prioritise Postgres and better audit/history screens.

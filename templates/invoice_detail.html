@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice["id"] }} | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Supplier invoice {{ invoice["id"] }}</p>
+    <h2>Review uploaded invoice</h2>
+    <p>
+      Check the uploaded paper invoice, confirm the linked supplier order, then move on to receiving the order into Keele.
+    </p>
+  </section>
+
+  {% if request.args.get("error") %}
+    <section class="panel"><div class="error-box">{{ request.args.get("error") }}</div></section>
+  {% endif %}
+  {% if request.args.get("uploaded") == "1" %}
+    <section class="panel"><div class="success-box">Invoice uploaded. Review it before receiving the supplier order.</div></section>
+  {% endif %}
+  {% if request.args.get("reviewed") == "1" %}
+    <section class="panel"><div class="success-box">Invoice marked as reviewed.</div></section>
+  {% endif %}
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Linked order</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ invoice["order_id"] }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Invoice status</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ invoice["review_status"] }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Order status</div>
+      <div class="metric-value" style="font-size: 1.35rem;">{{ invoice["order_status"] }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Uploaded</div>
+      <div class="metric-value" style="font-size: 1.1rem;">{{ invoice["uploaded_at"] }}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="actions-row" style="margin-top:0;">
+      <a class="button-link" href="/deliveries/new">Back to invoices</a>
+      <a class="button-link" href="/invoices/{{ invoice['id'] }}/file" target="_blank">Open invoice file</a>
+      <a class="button-link primary" href="/supplier-orders/{{ invoice['order_id'] }}">Open supplier order</a>
+    </div>
+
+    <form method="post" action="/invoices/{{ invoice['id'] }}/review" class="form-grid">
+      <label for="invoice_reference">
+        Invoice reference
+        <input id="invoice_reference" name="invoice_reference" type="text" value="{{ invoice['invoice_reference'] }}">
+      </label>
+      <label for="note">
+        Review note
+        <input id="note" name="note" type="text" value="{{ invoice['note'] }}">
+      </label>
+      <button type="submit">Mark invoice as reviewed</button>
+    </form>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <p class="eyebrow">Invoice details</p>
+      <h2>Uploaded file</h2>
+      <table>
+        <tbody>
+          <tr><th>Original filename</th><td>{{ invoice["original_filename"] }}</td></tr>
+          <tr><th>Supplier name</th><td>{{ invoice["supplier_name"] or "Not entered" }}</td></tr>
+          <tr><th>Invoice reference</th><td>{{ invoice["invoice_reference"] or "Not entered" }}</td></tr>
+          <tr><th>Note</th><td>{{ invoice["note"] or "No note yet" }}</td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Linked order</p>
+      <h2>Order {{ order["header"]["id"] }}</h2>
+      <table>
+        <tbody>
+          <tr><th>Order date</th><td>{{ order["header"]["order_date"] }}</td></tr>
+          <tr><th>Status</th><td>{{ order["header"]["status"] }}</td></tr>
+          <tr><th>Ordered qty</th><td>{{ '%.2f'|format(order["ordered_qty"]) }}</td></tr>
+          <tr><th>Received qty</th><td>{{ '%.2f'|format(order["received_qty"]) }}</td></tr>
+        </tbody>
+      </table>
+      <div class="field-help" style="margin-top:16px;">
+        Once the invoice has been checked, open the supplier order and use the receive action to put the stock into Keele.
+      </div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Order lines</p>
+    <h2>What this invoice should match</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Item</th>
+          <th>Ordered</th>
+          <th>Received</th>
+          <th>Unit cost</th>
+          <th>Unit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in order["lines"] %}
+          <tr>
+            <td>{{ row["supplier_name"] }}</td>
+            <td>{{ row["name"] }}</td>
+            <td>{{ '%.2f'|format(row["ordered_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["received_qty_base"]) }}</td>
+            <td>{{ '%.2f'|format(row["unit_cost"]) }}</td>
+            <td>{{ row["base_unit"] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

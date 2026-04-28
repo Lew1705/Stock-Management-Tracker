@@ -50,8 +50,11 @@
     <h2>Supplier shopping list</h2>
 
     <div class="actions-row" style="margin-top:0;">
-      <a class="button-link" href="/counts?location=Keele&date={{ count_date }}">Back to Keele count</a>
+      <a class="button-link" href="/counts/keele?date={{ count_date }}">Back to Keele count</a>
       <a class="button-link" href="/request-lists?date={{ count_date }}">View Little Shop request list</a>
+      {% if is_manager %}
+        <a class="button-link primary" href="/supplier-orders">Open supplier orders</a>
+      {% endif %}
     </div>
 
     {% if grouped_rows %}

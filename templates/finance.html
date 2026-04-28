@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Finance | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Internal auditing</p>
+    <h2>Finance dashboard</h2>
+    <p>
+      This view tracks stock movement value using the historical unit cost stored on each transaction.
+      It is intended for internal auditing between Keele and Little Shop.
+    </p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Calendar month</p>
+    <h2>Choose the month</h2>
+    <form method="get" action="/finance" class="form-grid">
+      <label for="month">
+        Reporting month
+        <input id="month" name="month" type="month" value="{{ selected_month }}" required>
+      </label>
+      <button type="submit">Load finance month</button>
+    </form>
+    <div class="empty-state">
+      Showing {{ month_label }}.
+      Date range: {{ start_date }} to {{ end_date }}.
+    </div>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Little Shop spend</div>
+      <div class="metric-value">{{ '%.2f'|format(little_shop_spend) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">KIT transfer value</div>
+      <div class="metric-value">{{ '%.2f'|format(kit_transfer_value) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">KIT supplier spend</div>
+      <div class="metric-value">{{ '%.2f'|format(kit_supplier_spend) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Net KIT spend</div>
+      <div class="metric-value">{{ '%.2f'|format(net_kit_spend) }}</div>
+    </article>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <p class="eyebrow">Breakdown</p>
+      <h2>Little Shop transfer-in value</h2>
+      {% if little_shop_breakdown %}
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Value</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in little_shop_breakdown %}
+              <tr>
+                <td>{{ row["name"] }}</td>
+                <td>{{ '%.2f'|format(row["total_qty"]) }}</td>
+                <td>{{ '%.2f'|format(row["total_value"]) }}</td>
+                <td>{{ row["base_unit"] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No Little Shop transfer value recorded in this period.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Trend data</p>
+      <h2>Little Shop spend trend</h2>
+      {% if time_series_data %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ chart_width }} {{ chart_height }}" role="img" aria-label="Little Shop spend trend">
+            {% for guide in chart_guides %}
+              <line x1="32" y1="{{ guide.y }}" x2="{{ chart_width - 32 }}" y2="{{ guide.y }}" stroke="#d9cbbb" stroke-dasharray="4 6"></line>
+              <text x="10" y="{{ guide.y + 4 }}" fill="#6f6255" font-size="12">{{ guide.label }}</text>
+            {% endfor %}
+
+            <line x1="32" y1="{{ chart_height - 32 }}" x2="{{ chart_width - 32 }}" y2="{{ chart_height - 32 }}" stroke="#bfae99"></line>
+
+            {% if chart_path %}
+              <path d="{{ chart_path }}" fill="none" stroke="#1f6f5f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            {% endif %}
+
+            {% for point in chart_points %}
+              <circle cx="{{ point.x }}" cy="{{ point.y }}" r="5" fill="#1f6f5f"></circle>
+              <text x="{{ point.x }}" y="{{ chart_height - 10 }}" text-anchor="middle" fill="#6f6255" font-size="12">{{ point.date }}</text>
+            {% endfor %}
+          </svg>
+        </div>
+        <div class="mini-note">Source data: {{ time_series_data | tojson }}</div>
+      {% else %}
+        <div class="empty-state">No time-series data was found for this period.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <p class="eyebrow">Breakdown</p>
+      <h2>KIT supplier spend</h2>
+      {% if kit_supplier_breakdown %}
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Value</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in kit_supplier_breakdown %}
+              <tr>
+                <td>{{ row["name"] }}</td>
+                <td>{{ '%.2f'|format(row["total_qty"]) }}</td>
+                <td>{{ '%.2f'|format(row["total_value"]) }}</td>
+                <td>{{ row["base_unit"] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No supplier receipts were recorded in this period.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Breakdown</p>
+      <h2>KIT transfer-out value</h2>
+      {% if kit_transfer_breakdown %}
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Value</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in kit_transfer_breakdown %}
+              <tr>
+                <td>{{ row["name"] }}</td>
+                <td>{{ '%.2f'|format(row["total_qty"]) }}</td>
+                <td>{{ '%.2f'|format(row["total_value"]) }}</td>
+                <td>{{ row["base_unit"] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No Keele transfer-outs were recorded in this period.</div>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

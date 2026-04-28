@@ -4,9 +4,14 @@ A Python and Flask stock tracker for managing stock between 2 coffee shop locati
 
 The project stores stock data in SQLite, supports item/par-level imports from CSV, can still integrate with Google Sheets, and now includes a browser-based workflow for stock counts, request lists, and supplier shopping lists.
 
+## Screenshot
+
+![Keele shopping list screen](docs/images/keele-shopping-list.png)
+
 ## Features
 
 - Web dashboard
+- Login and role-based access
 - Item list grouped by category
 - Add/edit items
 - Multiple suppliers per item
@@ -85,6 +90,12 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+For local development and tests:
+
+```powershell
+pip install -r requirements-dev.txt
+```
+
 Set local environment variables:
 
 ```powershell
@@ -98,10 +109,22 @@ Initialise the database:
 python -m stock.cli init
 ```
 
+Create the first user:
+
+```powershell
+python -m stock.cli create-user --username admin --role admin
+```
+
 Run the web app:
 
 ```powershell
 python -m stock.web
+```
+
+Run tests:
+
+```powershell
+pytest
 ```
 
 Open:
@@ -153,6 +176,7 @@ Supported unit examples:
 
 ```powershell
 python -m stock.cli init
+python -m stock.cli create-user --username admin --role admin
 python -m stock.cli import-items path\to\items.csv
 python -m stock.cli export-sheets
 python -m stock.cli run-day --date 2026-04-18
@@ -167,10 +191,16 @@ PYTHONPATH=src
 PORT=5000
 STOCK_TIMEZONE=Europe/London
 STOCK_DB_PATH=stock.db
-STOCK_WEB_TOKEN=choose-a-secret
+STOCK_SECRET_KEY=choose-a-long-random-secret
 STOCK_SHEET_ID=your-google-sheet-id
 GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\service-account.json
 ```
+
+## Roles
+
+- `staff`: dashboard, counts, request lists, shopping lists, and daily workflow
+- `manager`: everything staff can do, plus deliveries and item management
+- `admin`: everything managers can do, plus reserved for future user-management tasks
 
 For Railway, you can use:
 

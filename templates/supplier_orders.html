@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Supplier Orders | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Order lifecycle</p>
+    <h2>Supplier orders</h2>
+    <p>Turn shopping-list demand into draft orders, then mark them ordered and received.</p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Create from the current buying plan</p>
+    <h2>New supplier order</h2>
+    <form method="post" action="/supplier-orders" class="form-grid">
+      <label for="order_date">
+        Order date
+        <input id="order_date" name="order_date" type="date" value="{{ today }}" required>
+      </label>
+      <label for="note">
+        Note
+        <input id="note" name="note" type="text" value="Generated from shopping list">
+      </label>
+      <button type="submit">Create supplier order</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Recent orders</p>
+    <h2>Order history</h2>
+    {% if order_rows %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Ordered qty</th>
+            <th>Received qty</th>
+            <th>Lines</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in order_rows %}
+            <tr>
+              <td>{{ row["id"] }}</td>
+              <td>{{ row["order_date"] }}</td>
+              <td>{{ row["status"] }}</td>
+              <td>{{ '%.2f'|format(row["ordered_qty"]) }}</td>
+              <td>{{ '%.2f'|format(row["received_qty"]) }}</td>
+              <td>{{ row["line_count"] }}</td>
+              <td><a href="/supplier-orders/{{ row['id'] }}">Open</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No supplier orders created yet.</div>
+    {% endif %}
+  </section>
+{% endblock %}

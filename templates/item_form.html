@@ -40,6 +40,12 @@
         <div class="field-help">Examples: `each`, `pack`, `pack of 6`, `tray of 30`, `roll`, `bundle`.</div>
       </label>
 
+      <label for="cost-per-unit">
+        Cost per unit
+        <input id="cost-per-unit" name="cost_per_unit" type="number" step="any" min="0" value="{{ item_values['cost_per_unit'] }}">
+        <div class="field-help">Internal auditing cost used for finance reporting and transfer valuation.</div>
+      </label>
+
       <label for="supplier">
         Suppliers
         <input id="supplier" name="supplier" type="text" value="{{ item_values['supplier'] }}">
@@ -50,6 +56,18 @@
         Supplier refs
         <input id="ref" name="ref" type="text" value="{{ item_values['ref'] }}">
         <div class="field-help">Optional. Use the same order as the suppliers field, for example `BK-001; MR-002`.</div>
+      </label>
+
+      <label for="par-keele">
+        Keele par level
+        <input id="par-keele" name="par_keele" type="number" step="any" min="0" value="{{ item_values['par_keele'] }}">
+        <div class="field-help">Optional. Leave blank if this item should not have a Keele par level.</div>
+      </label>
+
+      <label for="par-little-shop">
+        Little Shop par level
+        <input id="par-little-shop" name="par_little_shop" type="number" step="any" min="0" value="{{ item_values['par_little_shop'] }}">
+        <div class="field-help">Optional. Leave blank if this item should not have a Little Shop par level.</div>
       </label>
 
       <button type="submit">{{ submit_label }}</button>
