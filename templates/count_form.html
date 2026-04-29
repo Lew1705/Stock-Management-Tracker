@@ -72,37 +72,49 @@
         <a class="button-link" href="{{ secondary_link_href }}">{{ secondary_link_label }}</a>
       </div>
 
-      <div class="category-list">
-        {% for category, rows in grouped_rows.items() %}
-          <section class="count-category">
-            <h3 style="margin:0;">{{ category }}</h3>
-            <p class="eyebrow" style="margin-top:6px;">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
+      {% if grouped_rows %}
+        <div class="category-list">
+          {% for category, rows in grouped_rows.items() %}
+            <section class="count-category">
+              <h3 style="margin:0;">{{ category }}</h3>
+              <p class="eyebrow" style="margin-top:6px;">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
 
-            <div class="count-grid">
-              {% for row in rows %}
-                <div class="count-row">
-                  <div>
-                    <div class="count-item-name">{{ row["name"] }}</div>
-                    <div class="count-subtle">Current stock: {{ '%.2f'|format(row["current_stock"]) }}</div>
+              <div class="count-grid">
+                {% for row in rows %}
+                  <div class="count-row">
+                    <div>
+                      <div class="count-item-name">{{ row["name"] }}</div>
+                      <div class="count-subtle">Current stock: {{ '%.2f'|format(row["current_stock"]) }}</div>
+                    </div>
+                    <div class="count-subtle">{{ row["base_unit"] }}</div>
+                    <div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        name="qty_{{ row['id'] }}"
+                        value="{{ row['counted_qty'] }}"
+                        {% if is_reconciled %}disabled{% endif %}
+                      >
+                    </div>
+                    <div class="count-subtle">ID {{ row["id"] }}</div>
                   </div>
-                  <div class="count-subtle">{{ row["base_unit"] }}</div>
-                  <div>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      name="qty_{{ row['id'] }}"
-                      value="{{ row['counted_qty'] }}"
-                      {% if is_reconciled %}disabled{% endif %}
-                    >
-                  </div>
-                  <div class="count-subtle">ID {{ row["id"] }}</div>
-                </div>
-              {% endfor %}
-            </div>
-          </section>
-        {% endfor %}
-      </div>
+                {% endfor %}
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          No items are available in the live database yet.
+          <br>
+          {% if is_manager %}
+            Import the item list or add items first, then reload this stock sheet.
+          {% else %}
+            Ask an owner to import the item list into the live system.
+          {% endif %}
+        </div>
+      {% endif %}
     </form>
   </section>
 {% endblock %}

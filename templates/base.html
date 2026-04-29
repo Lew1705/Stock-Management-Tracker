@@ -6,17 +6,18 @@
   <title>{% block title %}Stock Tracker{% endblock %}</title>
   <style>
     :root {
-      --bg: #f4efe7;
-      --panel: rgba(255, 251, 244, 0.92);
-      --ink: #1f1a16;
-      --muted: #6f6255;
-      --line: #d9cbbb;
-      --accent: #1f6f5f;
-      --accent-soft: #d8efe8;
-      --warn: #fff0df;
-      --danger: #a93b24;
-      --success: #176646;
-      --shadow: 0 24px 70px rgba(70, 51, 31, 0.12);
+      --bg: #eef0f1;
+      --panel: rgba(255, 255, 255, 0.94);
+      --ink: #343a40;
+      --muted: #6d7277;
+      --line: #cfd3d7;
+      --accent: #d8822a;
+      --accent-strong: #b96f21;
+      --accent-soft: #f4e2cf;
+      --warn: #fbecd9;
+      --danger: #a25528;
+      --success: #4b5560;
+      --shadow: 0 24px 70px rgba(52, 58, 64, 0.12);
     }
 
     * { box-sizing: border-box; }
@@ -25,9 +26,9 @@
       margin: 0;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(235, 183, 117, 0.5) 0, transparent 28%),
-        radial-gradient(circle at bottom right, rgba(62, 145, 123, 0.18) 0, transparent 24%),
-        linear-gradient(180deg, #f8f3ec 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, rgba(216, 130, 42, 0.28) 0, transparent 24%),
+        radial-gradient(circle at bottom right, rgba(167, 169, 172, 0.22) 0, transparent 30%),
+        linear-gradient(180deg, #f8f9fa 0%, var(--bg) 100%);
       font-family: Georgia, "Times New Roman", serif;
       min-height: 100vh;
     }
@@ -45,9 +46,9 @@
       align-items: center;
       gap: 16px;
       padding: 18px 24px;
-      border: 1px solid rgba(255,255,255,0.45);
+      border: 1px solid rgba(255,255,255,0.5);
       border-radius: 24px;
-      background: rgba(255, 249, 240, 0.8);
+      background: rgba(255, 255, 255, 0.82);
       backdrop-filter: blur(12px);
       box-shadow: var(--shadow);
     }
@@ -87,7 +88,7 @@
     }
 
     .nav a.active {
-      background: linear-gradient(135deg, var(--accent), #2b9d86);
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
       color: white;
       border-color: transparent;
     }
@@ -212,7 +213,7 @@
       color: white;
       font-weight: 700;
       cursor: pointer;
-      background: linear-gradient(135deg, var(--accent), #2b9d86);
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
     }
 
     .history-list,
@@ -284,10 +285,10 @@
       margin-bottom: 8px;
     }
 
-    .status-success { background: #dff3e8; color: var(--success); }
+    .status-success { background: #eef1f3; color: var(--success); }
     .status-failed,
-    .status-error { background: #fde7e3; color: var(--danger); }
-    .status-warning { background: var(--warn); color: #8b4a16; }
+    .status-error { background: #f7e5db; color: var(--danger); }
+    .status-warning { background: var(--warn); color: var(--accent-strong); }
 
     .history-meta,
     .eyebrow {
@@ -298,8 +299,8 @@
     pre {
       margin: 14px 0 0;
       padding: 16px;
-      background: #1f1a16;
-      color: #f3eee8;
+      background: #2c3339;
+      color: #f8f9fa;
       border-radius: 16px;
       overflow-x: auto;
       white-space: pre-wrap;
@@ -349,7 +350,7 @@
     .button-link.primary {
       color: white;
       border-color: transparent;
-      background: linear-gradient(135deg, var(--accent), #2b9d86);
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
     }
 
     .reveal-more {
@@ -374,7 +375,7 @@
       padding: 14px;
       border-radius: 18px;
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(244, 239, 231, 0.92) 100%);
+      background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(239, 241, 242, 0.95) 100%);
     }
 
     .chart-svg {
@@ -402,9 +403,9 @@
       margin-top: 16px;
       padding: 14px 16px;
       border-radius: 16px;
-      border: 1px solid #f0c39a;
+      border: 1px solid #efc9a0;
       background: var(--warn);
-      color: #8b4a16;
+      color: var(--accent-strong);
       font-weight: 700;
     }
 
@@ -412,8 +413,8 @@
       margin-top: 16px;
       padding: 14px 16px;
       border-radius: 16px;
-      border: 1px solid #bfe2d3;
-      background: #e7f6ee;
+      border: 1px solid #d7dce0;
+      background: #eef1f3;
       color: var(--success);
       font-weight: 700;
     }
