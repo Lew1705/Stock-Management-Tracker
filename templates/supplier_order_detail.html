@@ -18,6 +18,9 @@
   {% if request.args.get("ordered") == "1" %}
     <section class="panel"><div class="success-box">Supplier order marked as ordered.</div></section>
   {% endif %}
+  {% if request.args.get("updated") == "1" %}
+    <section class="panel"><div class="success-box">Draft order updated.</div></section>
+  {% endif %}
   {% if request.args.get("received") == "1" %}
     <section class="panel"><div class="success-box">Supplier order received. Added {{ request.args.get("received_qty", "0") }} units into Keele.</div></section>
   {% endif %}
@@ -42,13 +45,7 @@
       <a class="button-link" href="/shopping-lists?date={{ header['order_date'] }}">Open shopping list</a>
     </div>
 
-    {% if header["status"] == "DRAFT" %}
-      <form method="post" action="/supplier-orders/{{ header['id'] }}/ordered" class="form-grid">
-        <button type="submit">Mark as ordered</button>
-      </form>
-    {% endif %}
-
-    {% if header["status"] in ("DRAFT", "ORDERED") %}
+    {% if header["status"] == "ORDERED" %}
       <form method="post" action="/supplier-orders/{{ header['id'] }}/received" class="form-grid">
         <label for="note">
           Invoice note or reference
@@ -67,31 +64,108 @@
 
   <section class="panel">
     <p class="eyebrow">Order lines</p>
-    <h2>Items to buy</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Supplier</th>
-          <th>Item</th>
-          <th>Ordered</th>
-          <th>Received</th>
-          <th>Unit cost</th>
-          <th>Unit</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in lines %}
-          <tr>
-            <td>{{ row["supplier_name"] }}</td>
-            <td>{{ row["name"] }}</td>
-            <td>{{ '%.2f'|format(row["ordered_qty_base"]) }}</td>
-            <td>{{ '%.2f'|format(row["received_qty_base"]) }}</td>
-            <td>{{ '%.2f'|format(row["unit_cost"]) }}</td>
-            <td>{{ row["base_unit"] }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <h2>{% if header["status"] == "DRAFT" %}Edit items to order{% else %}Items ordered{% endif %}</h2>
+    {% if lines %}
+      {% if header["status"] == "DRAFT" %}
+        <form method="post" action="/supplier-orders/{{ header['id'] }}/lines">
+          <table>
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Item</th>
+                <th>Quantity</th>
+                <th>Unit cost</th>
+                <th>Unit</th>
+                <th>Exclude</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in lines %}
+                <tr>
+                  <td>{{ row["supplier_name"] }}</td>
+                  <td>{{ row["name"] }}</td>
+                  <td>
+                    <input
+                      name="quantity_{{ row['id'] }}"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="{{ '%.2f'|format(row['ordered_qty_base']) }}"
+                      aria-label="Quantity for {{ row['name'] }}"
+                    >
+                  </td>
+                  <td>{{ '%.2f'|format(row["unit_cost"]) }}</td>
+                  <td>{{ row["base_unit"] }}</td>
+                  <td>
+                    <label class="inline-check">
+                      <input name="delete_{{ row['id'] }}" type="checkbox" value="1">
+                      Remove
+                    </label>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="actions-row">
+            <button type="submit">Save draft changes</button>
+          </div>
+        </form>
+        <form method="post" action="/supplier-orders/{{ header['id'] }}/ordered" class="form-grid">
+          <button type="submit">Confirm ordered</button>
+        </form>
+      {% else %}
+        <table>
+          <thead>
+            <tr>
+              <th>Supplier</th>
+              <th>Item</th>
+              <th>Ordered</th>
+              <th>Received</th>
+              <th>Unit cost</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in lines %}
+              <tr>
+                <td>{{ row["supplier_name"] }}</td>
+                <td>{{ row["name"] }}</td>
+                <td>{{ '%.2f'|format(row["ordered_qty_base"]) }}</td>
+                <td>{{ '%.2f'|format(row["received_qty_base"]) }}</td>
+                <td>{{ '%.2f'|format(row["unit_cost"]) }}</td>
+                <td>{{ row["base_unit"] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    {% else %}
+      <div class="empty-state">This draft has no lines left. Add a new order from the shopping list, or keep this one cancelled.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Attach invoice</p>
+    <h2>Upload invoice for this order</h2>
+    <form method="post" action="/supplier-orders/{{ header['id'] }}/invoices" enctype="multipart/form-data" class="form-grid">
+      <label for="invoice_reference">
+        Invoice reference
+        <input id="invoice_reference" name="invoice_reference" type="text" placeholder="Invoice number or supplier reference">
+      </label>
+      <label for="supplier_name">
+        Supplier name
+        <input id="supplier_name" name="supplier_name" type="text" placeholder="Booker, Bradwall Bakehouse, Morrisons">
+      </label>
+      <label for="invoice_note">
+        Intake note
+        <input id="invoice_note" name="note" type="text" placeholder="Paper invoice uploaded for review">
+      </label>
+      <label for="invoice_file">
+        Invoice file
+        <input id="invoice_file" name="invoice_file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+      </label>
+      <button type="submit">Upload invoice</button>
+    </form>
   </section>
 
   <section class="panel">

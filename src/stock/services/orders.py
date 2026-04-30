@@ -8,6 +8,7 @@ from ..db import (
     list_supplier_orders,
     mark_supplier_order_ordered,
     receive_supplier_order,
+    update_supplier_order_draft_lines,
 )
 
 
@@ -35,6 +36,31 @@ def get_order_detail(order_id: int) -> dict:
 
 def mark_order_ordered(order_id: int) -> None:
     mark_supplier_order_ordered(order_id)
+
+
+def update_order_draft_lines(order_id: int, form_data) -> None:
+    detail = get_order_detail(order_id)
+    quantities: dict[int, float] = {}
+    deleted_line_ids: set[int] = set()
+
+    for line in detail["lines"]:
+        line_id = int(line["id"])
+        raw_quantity = str(form_data.get(f"quantity_{line_id}", "")).strip()
+        delete_value = str(form_data.get(f"delete_{line_id}", "")).strip()
+
+        if delete_value:
+            deleted_line_ids.add(line_id)
+            continue
+
+        if raw_quantity == "":
+            raise ValueError("Every order line needs a quantity. Use 0 or delete for items not being ordered.")
+
+        try:
+            quantities[line_id] = float(raw_quantity)
+        except ValueError as exc:
+            raise ValueError("Order quantities must be numbers.") from exc
+
+    update_supplier_order_draft_lines(order_id, quantities, deleted_line_ids)
 
 
 def mark_order_received(order_id: int, note: str = "") -> dict:

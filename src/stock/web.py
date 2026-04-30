@@ -55,6 +55,7 @@ from .services.orders import (
     mark_order_cancelled,
     mark_order_ordered,
     mark_order_received,
+    update_order_draft_lines,
 )
 from .services.planning import get_request_list_data, get_shopping_list_data
 from .services.reporting import build_operations_history_context
@@ -636,12 +637,38 @@ def supplier_order_detail(order_id: int):
     return render_template("supplier_order_detail.html", **detail)
 
 
+@app.post("/supplier-orders/<int:order_id>/lines")
+@role_required("manager", "admin")
+def supplier_order_update_lines(order_id: int):
+    try:
+        update_order_draft_lines(order_id, request.form)
+        return redirect(url_for("supplier_order_detail", order_id=order_id, updated="1"))
+    except ValueError as exc:
+        return redirect(url_for("supplier_order_detail", order_id=order_id, error=str(exc)))
+
+
 @app.post("/supplier-orders/<int:order_id>/ordered")
 @role_required("manager", "admin")
 def supplier_order_mark_ordered(order_id: int):
     try:
         mark_order_ordered(order_id)
         return redirect(url_for("supplier_order_detail", order_id=order_id, ordered="1"))
+    except ValueError as exc:
+        return redirect(url_for("supplier_order_detail", order_id=order_id, error=str(exc)))
+
+
+@app.post("/supplier-orders/<int:order_id>/invoices")
+@role_required("manager", "admin")
+def supplier_order_upload_invoice(order_id: int):
+    try:
+        invoice_id = save_supplier_invoice_upload(
+            str(order_id),
+            request.form.get("invoice_reference", ""),
+            request.form.get("supplier_name", ""),
+            request.form.get("note", ""),
+            request.files.get("invoice_file"),
+        )
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id, uploaded="1"))
     except ValueError as exc:
         return redirect(url_for("supplier_order_detail", order_id=order_id, error=str(exc)))
 

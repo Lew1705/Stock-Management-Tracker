@@ -7,6 +7,25 @@ from .core.units import VALID_BASE_UNITS, normalize_base_unit, parse_supplier_li
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_local_env(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env(PROJECT_ROOT / ".env")
+
 DEFAULT_DB_PATH = (
     Path(os.environ["RAILWAY_VOLUME_MOUNT_PATH"]) / "stock.db"
     if os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
@@ -2495,6 +2514,48 @@ def get_supplier_order_lines(order_id: int):
         ).fetchall()
 
 
+def update_supplier_order_draft_lines(
+    order_id: int,
+    quantities_by_line_id: dict[int, float],
+    deleted_line_ids: set[int] | None = None,
+) -> None:
+    order = get_supplier_order(order_id)
+    if str(order["status"]) != "DRAFT":
+        raise ValueError("Only draft supplier orders can be edited.")
+
+    deleted_line_ids = deleted_line_ids or set()
+    with get_conn() as conn:
+        valid_line_rows = conn.execute(
+            "SELECT id FROM supplier_order_lines WHERE order_id = ?;",
+            (int(order_id),),
+        ).fetchall()
+        valid_line_ids = {int(row["id"]) for row in valid_line_rows}
+
+        unknown_ids = (set(quantities_by_line_id) | deleted_line_ids) - valid_line_ids
+        if unknown_ids:
+            raise ValueError("One or more order lines could not be found.")
+
+        for line_id in deleted_line_ids:
+            conn.execute(
+                "DELETE FROM supplier_order_lines WHERE id = ? AND order_id = ?;",
+                (int(line_id), int(order_id)),
+            )
+
+        for line_id, quantity in quantities_by_line_id.items():
+            if line_id in deleted_line_ids:
+                continue
+            if quantity < 0:
+                raise ValueError("Order quantities cannot be negative.")
+            conn.execute(
+                """
+                UPDATE supplier_order_lines
+                SET ordered_qty_base = ?
+                WHERE id = ? AND order_id = ?;
+                """,
+                (float(quantity), int(line_id), int(order_id)),
+            )
+
+
 def create_supplier_invoice(
     order_id: int,
     original_filename: str,
@@ -2636,6 +2697,34 @@ def mark_supplier_invoice_reviewed(invoice_id: int, invoice_reference: str = "",
 
 def mark_supplier_order_ordered(order_id: int) -> None:
     with get_conn() as conn:
+        order = conn.execute(
+            "SELECT status FROM supplier_orders WHERE id = ?;",
+            (int(order_id),),
+        ).fetchone()
+        if order is None:
+            raise ValueError(f"Supplier order {order_id} not found.")
+        if str(order["status"]) != "DRAFT":
+            raise ValueError("Only draft supplier orders can be marked as ordered.")
+
+        conn.execute(
+            """
+            DELETE FROM supplier_order_lines
+            WHERE order_id = ?
+              AND ordered_qty_base <= 0;
+            """,
+            (int(order_id),),
+        )
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) AS line_count
+            FROM supplier_order_lines
+            WHERE order_id = ?;
+            """,
+            (int(order_id),),
+        ).fetchone()
+        if int(remaining["line_count"] or 0) <= 0:
+            raise ValueError("Supplier order must include at least one item before it can be ordered.")
+
         cur = conn.execute(
             """
             UPDATE supplier_orders
@@ -2670,6 +2759,8 @@ def receive_supplier_order(order_id: int, note: str = "") -> dict:
     order = get_supplier_order(order_id)
     if str(order["status"]) == "CANCELLED":
         raise ValueError("Cancelled supplier orders cannot be received.")
+    if str(order["status"]) != "ORDERED":
+        raise ValueError("Only ordered supplier orders can be received.")
 
     received_lines = 0
     received_qty = 0.0
@@ -2730,8 +2821,7 @@ def receive_supplier_order(order_id: int, note: str = "") -> dict:
             """
             UPDATE supplier_orders
             SET status = 'RECEIVED',
-                received_at = datetime('now'),
-                ordered_at = COALESCE(ordered_at, datetime('now'))
+                received_at = datetime('now')
             WHERE id = ?;
             """,
             (int(order_id),),
