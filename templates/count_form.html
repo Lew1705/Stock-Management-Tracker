@@ -75,9 +75,14 @@
       {% if grouped_rows %}
         <div class="category-list">
           {% for category, rows in grouped_rows.items() %}
-            <section class="count-category">
-              <h3 style="margin:0;">{{ category }}</h3>
-              <p class="eyebrow" style="margin-top:6px;">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</p>
+            <details class="count-category" {% if loop.first %}open{% endif %}>
+              <summary class="count-category-summary">
+                <span>
+                  <span class="count-category-title">{{ category }}</span>
+                  <span class="count-category-meta">{{ rows|length }} item{% if rows|length != 1 %}s{% endif %}</span>
+                </span>
+                <span class="count-category-toggle" aria-hidden="true"></span>
+              </summary>
 
               <div class="count-grid">
                 {% for row in rows %}
@@ -101,7 +106,7 @@
                   </div>
                 {% endfor %}
               </div>
-            </section>
+            </details>
           {% endfor %}
         </div>
       {% else %}

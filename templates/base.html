@@ -238,16 +238,61 @@
     }
 
     .count-category {
-      padding: 18px;
       border-radius: 18px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.66);
+      overflow: hidden;
+    }
+
+    .count-category-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .count-category-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .count-category-title {
+      display: block;
+      color: var(--ink);
+      font-size: 1.12rem;
+      font-weight: 800;
+    }
+
+    .count-category-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+
+    .count-category-toggle {
+      width: 12px;
+      height: 12px;
+      border-bottom: 2px solid var(--accent);
+      border-right: 2px solid var(--accent);
+      transform: rotate(45deg);
+      transition: transform 0.16s ease;
+      flex: 0 0 auto;
+    }
+
+    .count-category[open] .count-category-toggle {
+      transform: rotate(225deg);
     }
 
     .count-grid {
       display: grid;
       gap: 10px;
-      margin-top: 14px;
+      padding: 0 18px 16px;
     }
 
     .count-row {
