@@ -23,6 +23,7 @@ from .services.admin import (
     update_user_active_record,
     update_user_role_record,
 )
+from .services.analytics import build_analytics_dashboard_context, build_item_analytics_context
 from .services.audit import build_finance_dashboard_context, get_request_list_value
 from .services.auth import (
     AnonymousUser,
@@ -381,6 +382,12 @@ def finance():
     return render_template("finance.html", **finance_context)
 
 
+@app.get("/analytics")
+@role_required("manager", "admin")
+def analytics_dashboard():
+    return render_template("analytics.html", **build_analytics_dashboard_context(request.args))
+
+
 @app.get("/deliveries/new")
 @role_required("manager", "admin")
 def new_delivery():
@@ -555,6 +562,23 @@ def edit_item(item_id: int):
         base_units=get_base_units(),
         item_id=item_id,
     )
+
+
+@app.get("/items/<int:item_id>/analytics")
+@role_required("manager", "admin")
+def item_analytics(item_id: int):
+    try:
+        context = build_item_analytics_context(item_id, request.args)
+    except ValueError as exc:
+        return render_template(
+            "run_day_result.html",
+            title="Item not found",
+            status="error",
+            message=str(exc),
+            output="",
+            run_date=today_iso(),
+        ), 404
+    return render_template("item_analytics.html", **context)
 
 
 @app.post("/items/<int:item_id>")

@@ -4,12 +4,9 @@
 
 {% block content %}
   <section class="hero">
-    <p class="eyebrow">Phase 2, Step 1</p>
-    <h2>We now have a real app shell to build on.</h2>
-    <p>
-      This dashboard is the new home for the stock system. It keeps your current daily workflow available,
-      while giving us proper pages and navigation for the next features.
-    </p>
+    <p class="eyebrow">Daily operations</p>
+    <h2>Stock dashboard</h2>
+    <p>Review count readiness, run the daily workflow, and open the key stock tools.</p>
   </section>
 
   <section class="metrics">
@@ -55,16 +52,15 @@
     </article>
 
     <article class="panel">
-      <p class="eyebrow">Next learning step</p>
-      <h2>Inventory page is live</h2>
-      <p>
-        You can already browse the imported items in a proper app page. That will be the base for an add/edit item screen next.
-      </p>
-      <div class="empty-state" style="margin-top:18px;">
-        View <a href="/items">Items</a> to see the first real management screen.
-        <br>
-        Timezone: {{ timezone_name }}
+      <p class="eyebrow">Shortcuts</p>
+      <h2>Stock tools</h2>
+      <div class="actions-row">
+        <a class="button-link" href="/analytics">Analytics</a>
+        <a class="button-link" href="/items">Items</a>
+        <a class="button-link" href="/shopping-lists">Keele shopping</a>
+        <a class="button-link" href="/supplier-orders">Supplier orders</a>
       </div>
+      <div class="empty-state" style="margin-top:18px;">Timezone: {{ timezone_name }}</div>
     </article>
   </section>
 

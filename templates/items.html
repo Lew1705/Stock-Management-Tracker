@@ -61,7 +61,15 @@
                     <td>{{ row["name"] }}</td>
                     <td>{{ row["base_unit"] }}</td>
                     <td>{{ row["suppliers"] or "Not set yet" }}</td>
-                    <td>{% if is_manager %}<a href="/items/{{ row['id'] }}/edit">Edit</a>{% else %}View only{% endif %}</td>
+                    <td>
+                      {% if is_manager %}
+                        <a href="/items/{{ row['id'] }}/analytics">Analytics</a>
+                        &middot;
+                        <a href="/items/{{ row['id'] }}/edit">Edit</a>
+                      {% else %}
+                        View only
+                      {% endif %}
+                    </td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -85,7 +93,15 @@
                         <td>{{ row["name"] }}</td>
                         <td>{{ row["base_unit"] }}</td>
                         <td>{{ row["suppliers"] or "Not set yet" }}</td>
-                        <td>{% if is_manager %}<a href="/items/{{ row['id'] }}/edit">Edit</a>{% else %}View only{% endif %}</td>
+                        <td>
+                          {% if is_manager %}
+                            <a href="/items/{{ row['id'] }}/analytics">Analytics</a>
+                            &middot;
+                            <a href="/items/{{ row['id'] }}/edit">Edit</a>
+                          {% else %}
+                            View only
+                          {% endif %}
+                        </td>
                       </tr>
                     {% endfor %}
                   </tbody>

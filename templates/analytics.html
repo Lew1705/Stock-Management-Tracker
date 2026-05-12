@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Operational analytics</p>
+    <h2>Inventory usage trends</h2>
+    <p>
+      Track consumption, stock risk, category pressure, and abnormal movement across the cafe and roastery workflow.
+    </p>
+    <div class="range-note">
+      <span class="source-badge">{% if has_real_history %}Live transaction history{% else %}Demo analytics model{% endif %}</span>
+      <span>Showing {{ filters.start }} to {{ filters.end }}</span>
+    </div>
+
+    <form method="get" action="/analytics" class="analytics-toolbar" data-loading-form>
+      <label for="period">
+        Time range
+        <select id="period" name="period">
+          <option value="7" {% if filters.period == "7" %}selected{% endif %}>Last 7 days</option>
+          <option value="30" {% if filters.period == "30" %}selected{% endif %}>Last 30 days</option>
+          <option value="90" {% if filters.period == "90" %}selected{% endif %}>Last 90 days</option>
+          <option value="custom" {% if filters.period == "custom" %}selected{% endif %}>Custom range</option>
+        </select>
+      </label>
+      <label for="category">
+        Category
+        <select id="category" name="category">
+          <option value="" {% if not filters.category %}selected{% endif %}>All categories</option>
+          {% for category in category_filters %}
+            <option value="{{ category }}" {% if filters.category == category %}selected{% endif %}>{{ category|title }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label for="start">
+        Start
+        <input id="start" name="start" type="date" value="{{ filters.start }}">
+      </label>
+      <label for="end">
+        End
+        <input id="end" name="end" type="date" value="{{ filters.end }}">
+      </label>
+      <button type="submit">Apply filters</button>
+    </form>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Inventory items</div>
+      <div class="metric-value">{{ kpis.total_items }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Low stock items</div>
+      <div class="metric-value">{{ kpis.low_stock_items }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Most used this week</div>
+      <div class="metric-value" style="font-size:1.15rem;">{{ kpis.most_used_week }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Avg daily usage</div>
+      <div class="metric-value">{{ "%.1f"|format(kpis.average_daily_usage) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Usage change</div>
+      <div class="metric-value">{{ "%+.0f"|format(kpis.weekly_usage_change_pct) }}%</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Estimated stock value</div>
+      <div class="metric-value">{{ "%.2f"|format(kpis.estimated_stock_value) }}</div>
+    </article>
+  </section>
+
+  <section class="analytics-grid wide-left">
+    <article class="panel chart-card">
+      <p class="eyebrow">Daily trend</p>
+      <h2>Daily usage</h2>
+      {% if daily_chart.points %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ daily_chart.width }} {{ daily_chart.height }}" role="img" aria-label="Daily usage trend">
+            {% for guide in daily_chart.guides %}
+              <line x1="42" y1="{{ guide.y }}" x2="{{ daily_chart.width - 42 }}" y2="{{ guide.y }}" stroke="#d7dce0" stroke-dasharray="4 6"></line>
+              <text x="6" y="{{ guide.y + 4 }}" fill="#6d7277" font-size="12">{{ guide.label }}</text>
+            {% endfor %}
+            {% if daily_chart.area_path %}
+              <path d="{{ daily_chart.area_path }}" fill="#1f6f5f" opacity="0.14"></path>
+            {% endif %}
+            <path d="{{ daily_chart.path }}" fill="none" stroke="#1f6f5f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            {% for point in daily_chart.points %}
+              <circle class="chart-tooltip-dot" cx="{{ point.x }}" cy="{{ point.y }}" r="4" fill="#1f6f5f" opacity="0.72">
+                <title>{{ point.tooltip }}</title>
+              </circle>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No daily usage was found for this range.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Smart alerts</p>
+      <h2>Anomaly detection</h2>
+      {% if alerts %}
+        <div class="insight-list">
+          {% for alert in alerts %}
+            <article class="insight-card {{ alert.severity }}" data-alert-id="{{ alert.id }}">
+              <div class="status status-{% if alert.severity == 'critical' %}error{% elif alert.severity == 'warning' %}warning{% else %}success{% endif %}">{{ alert.severity|title }}</div>
+              <h3>{{ alert.title }}</h3>
+              <p>{{ alert.body }}</p>
+              {% if alert.item_id %}
+                <p class="mini-note"><a href="/items/{{ alert.item_id }}/analytics">Open item analytics</a></p>
+              {% endif %}
+              <button type="button" class="dismiss-alert" data-dismiss-alert="{{ alert.id }}">Dismiss</button>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">No abnormal trends detected in this range.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel chart-card">
+      <p class="eyebrow">Weekly trend</p>
+      <h2>Weekly usage</h2>
+      {% if weekly_chart.points %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ weekly_chart.width }} {{ weekly_chart.height }}" role="img" aria-label="Weekly usage trend">
+            {% for guide in weekly_chart.guides %}
+              <line x1="42" y1="{{ guide.y }}" x2="{{ weekly_chart.width - 42 }}" y2="{{ guide.y }}" stroke="#d7dce0" stroke-dasharray="4 6"></line>
+            {% endfor %}
+            <path d="{{ weekly_chart.path }}" fill="none" stroke="#d8822a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            {% for point in weekly_chart.points %}
+              <circle class="chart-tooltip-dot" cx="{{ point.x }}" cy="{{ point.y }}" r="5" fill="#d8822a">
+                <title>{{ point.tooltip }}</title>
+              </circle>
+              <text x="{{ point.x }}" y="{{ weekly_chart.height - 8 }}" text-anchor="middle" fill="#6d7277" font-size="12">{{ point.label }}</text>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No weekly trend data was found.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel chart-card">
+      <p class="eyebrow">Category mix</p>
+      <h2>Usage breakdown</h2>
+      {% if category_chart.segments %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 320 210" role="img" aria-label="Category usage breakdown">
+            <g transform="translate(105 105) rotate(-90)">
+              {% for segment in category_chart.segments %}
+                <circle r="{{ category_chart.radius }}" cx="0" cy="0" fill="transparent" stroke="{{ segment.color }}" stroke-width="24" stroke-dasharray="{{ segment.dash }} {{ segment.gap }}" stroke-dashoffset="{{ segment.offset }}"></circle>
+              {% endfor %}
+            </g>
+            <circle r="42" cx="105" cy="105" fill="#f8f9fa"></circle>
+            <text x="105" y="101" text-anchor="middle" fill="#343a40" font-size="18" font-weight="700">{{ "%.0f"|format(category_chart.total) }}</text>
+            <text x="105" y="121" text-anchor="middle" fill="#6d7277" font-size="12">units</text>
+            {% for row in category_breakdown %}
+              <rect x="210" y="{{ 28 + loop.index0 * 28 }}" width="12" height="12" rx="3" fill="{{ category_chart.segments[loop.index0].color }}"></rect>
+              <text x="230" y="{{ 39 + loop.index0 * 28 }}" fill="#343a40" font-size="13">{{ row.label }} {{ row.percent }}%</text>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No category usage to chart yet.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel chart-card">
+      <p class="eyebrow">Most consumed</p>
+      <h2>Top products</h2>
+      {% if top_items_chart.bars %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ top_items_chart.width }} {{ top_items_chart.height }}" role="img" aria-label="Most consumed products">
+            {% for bar in top_items_chart.bars %}
+              <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="8" fill="#1f6f5f" opacity="0.86"></rect>
+              <text class="bar-label" x="8" y="{{ bar.y + bar.height - 5 }}">{{ bar.label[:22] }}</text>
+              <text x="{{ bar.x + bar.width + 8 }}" y="{{ bar.y + bar.height - 5 }}" fill="#6d7277" font-size="12">{{ bar.value_label }}</text>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No consumed products in this range.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel chart-card">
+      <p class="eyebrow">Momentum</p>
+      <h2>Fastest increasing usage</h2>
+      {% if increasing_chart.bars %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ increasing_chart.width }} {{ increasing_chart.height }}" role="img" aria-label="Fastest increasing usage items">
+            {% for bar in increasing_chart.bars %}
+              <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="8" fill="#d8822a" opacity="0.88"></rect>
+              <text class="bar-label" x="8" y="{{ bar.y + bar.height - 5 }}">{{ bar.label[:22] }}</text>
+              <text x="{{ bar.x + bar.width + 8 }}" y="{{ bar.y + bar.height - 5 }}" fill="#6d7277" font-size="12">{{ "%+.0f"|format(bar.change_pct) }}%</text>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No increasing trend has emerged yet.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel">
+      <p class="eyebrow">Inventory activity</p>
+      <h2>Recent activity</h2>
+      {% if recent_activity %}
+        <div class="activity-feed">
+          {% for activity in recent_activity %}
+            <article class="activity-item">
+              <strong>{{ activity.date }}</strong>
+              <div>
+                <strong>{{ activity.title }}</strong>
+                <p>{{ activity.body }}</p>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">No recent stock movement found.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Stock risk</p>
+      <h2>Recently depleted items</h2>
+      {% if low_stock %}
+        <table>
+          <thead>
+            <tr><th>Item</th><th>Stock</th><th>Par</th></tr>
+          </thead>
+          <tbody>
+            {% for row in low_stock %}
+              <tr>
+                <td><a href="/items/{{ row.id }}/analytics">{{ row.name }}</a></td>
+                <td>{{ "%.1f"|format(row.current_stock) }}</td>
+                <td>{{ "%.1f"|format(row.par) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No low-stock items found against current par levels.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-dismiss-alert]").forEach((button) => {
+      const id = button.dataset.dismissAlert;
+      const card = document.querySelector(`[data-alert-id="${id}"]`);
+      if (localStorage.getItem(`stock-alert-${id}`) === "dismissed" && card) {
+        card.hidden = true;
+      }
+      button.addEventListener("click", () => {
+        localStorage.setItem(`stock-alert-${id}`, "dismissed");
+        if (card) card.hidden = true;
+      });
+    });
+    document.querySelectorAll("[data-loading-form]").forEach((form) => {
+      form.addEventListener("submit", () => {
+        const button = form.querySelector("button[type='submit']");
+        if (button) button.textContent = "Loading...";
+      });
+    });
+  </script>
+{% endblock %}

@@ -20,6 +20,8 @@ def active_page_for_path(path: str) -> str:
         return "deliveries"
     if path.startswith("/finance"):
         return "finance"
+    if path.startswith("/analytics"):
+        return "analytics"
     if path.startswith("/transfers"):
         return "transfers"
     if path.startswith("/supplier-orders"):

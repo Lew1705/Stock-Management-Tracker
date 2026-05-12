@@ -464,9 +464,160 @@
       font-weight: 700;
     }
 
+    .analytics-toolbar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+      gap: 12px;
+      align-items: end;
+      margin-top: 18px;
+    }
+
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .analytics-grid.wide-left {
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+    }
+
+    .chart-card {
+      min-width: 0;
+    }
+
+    .chart-card h3,
+    .insight-card h3 {
+      margin: 0 0 8px;
+      font-size: 1.15rem;
+    }
+
+    .chart-tooltip-dot:hover {
+      r: 7;
+      opacity: 1;
+    }
+
+    .bar-label {
+      font-size: 12px;
+      fill: var(--ink);
+      font-weight: 700;
+    }
+
+    .insight-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .insight-card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-left: 6px solid #62748a;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.76);
+      transition: transform 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .insight-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 32px rgba(52, 58, 64, 0.11);
+    }
+
+    .insight-card.warning { border-left-color: var(--accent); }
+    .insight-card.critical { border-left-color: #a25528; background: #fbf0ea; }
+    .insight-card.info { border-left-color: #1f6f5f; }
+
+    .dismiss-alert {
+      width: auto;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.8);
+      color: var(--ink);
+    }
+
+    .activity-feed {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .activity-item {
+      display: grid;
+      grid-template-columns: 108px 1fr;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.64);
+    }
+
+    .heatmap {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(48px, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .heat-cell {
+      min-height: 72px;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(207, 211, 215, 0.85);
+      background: rgba(31, 111, 95, calc(0.12 + (var(--heat) * 0.55)));
+    }
+
+    .heat-cell strong {
+      font-size: 0.92rem;
+    }
+
+    .heat-cell span {
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .range-note {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.72);
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
     @media (max-width: 860px) {
       .grid-2 {
         grid-template-columns: 1fr;
+      }
+
+      .analytics-toolbar,
+      .analytics-grid,
+      .analytics-grid.wide-left {
+        grid-template-columns: 1fr;
+      }
+
+      .activity-item {
+        grid-template-columns: 1fr;
+      }
+
+      .heatmap {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .count-row {
@@ -485,7 +636,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Stock Tracker</h1>
-        <p>First app shell for counts, items, and daily stock workflow.</p>
+        <p>Counts, stock movement, orders, and operational analytics.</p>
       </div>
       <div class="nav-shell">
         <nav class="nav">
@@ -500,6 +651,7 @@
               <a href="/supplier-orders" class="{% if active_page == 'supplier_orders' %}active{% endif %}">Supplier Orders</a>
               <a href="/history" class="{% if active_page == 'history' %}active{% endif %}">History</a>
               <a href="/finance" class="{% if active_page == 'finance' %}active{% endif %}">Finance</a>
+              <a href="/analytics" class="{% if active_page == 'analytics' %}active{% endif %}">Analytics</a>
               <a href="/items" class="{% if active_page == 'items' %}active{% endif %}">Items</a>
             {% endif %}
             {% if is_manager %}

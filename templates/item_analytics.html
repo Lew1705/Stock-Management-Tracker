@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.name }} Analytics | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Item analytics</p>
+    <h2>{{ item.name }}</h2>
+    <p>
+      Detailed consumption, waste, replenishment, and reorder signals for this inventory item.
+    </p>
+    <div class="actions-row">
+      <a class="button-link" href="/items">Back to items</a>
+      <a class="button-link" href="/items/{{ item.id }}/edit">Edit item</a>
+    </div>
+
+    <form method="get" action="/items/{{ item.id }}/analytics" class="analytics-toolbar" data-loading-form>
+      <label for="period">
+        Time range
+        <select id="period" name="period">
+          <option value="7" {% if filters.period == "7" %}selected{% endif %}>Last 7 days</option>
+          <option value="30" {% if filters.period == "30" %}selected{% endif %}>Last 30 days</option>
+          <option value="90" {% if filters.period == "90" %}selected{% endif %}>Last 90 days</option>
+          <option value="custom" {% if filters.period == "custom" %}selected{% endif %}>Custom range</option>
+        </select>
+      </label>
+      <label for="start">
+        Start
+        <input id="start" name="start" type="date" value="{{ filters.start }}">
+      </label>
+      <label for="end">
+        End
+        <input id="end" name="end" type="date" value="{{ filters.end }}">
+      </label>
+      <button type="submit">Load item analytics</button>
+    </form>
+  </section>
+
+  <section class="metrics">
+    <article class="metric">
+      <div class="metric-label">Current stock</div>
+      <div class="metric-value">{{ "%.1f"|format(overview.current_stock) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Avg daily usage</div>
+      <div class="metric-value">{{ "%.1f"|format(overview.average_daily_usage) }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Supplier</div>
+      <div class="metric-value" style="font-size:1.1rem;">{{ overview.supplier }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Depletion date</div>
+      <div class="metric-value" style="font-size:1.15rem;">{{ overview.estimated_depletion_date }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Reorder</div>
+      <div class="metric-value" style="font-size:1.15rem;">{{ overview.reorder_recommendation }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Waste</div>
+      <div class="metric-value">{{ "%.1f"|format(overview.waste_pct) }}%</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Trend</div>
+      <div class="metric-value" style="font-size:1.2rem;">{{ overview.trend_direction }}</div>
+    </article>
+    <article class="metric">
+      <div class="metric-label">Days remaining</div>
+      <div class="metric-value">{% if overview.days_remaining is not none %}{{ "%.1f"|format(overview.days_remaining) }}{% else %}n/a{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="analytics-grid wide-left">
+    <article class="panel chart-card">
+      <p class="eyebrow">Interactive history</p>
+      <h2>Stock level over time</h2>
+      <div class="chart-shell">
+        <svg class="chart-svg" viewBox="0 0 {{ stock_chart.width }} {{ stock_chart.height }}" role="img" aria-label="Stock level over time">
+          {% for guide in stock_chart.guides %}
+            <line x1="42" y1="{{ guide.y }}" x2="{{ stock_chart.width - 42 }}" y2="{{ guide.y }}" stroke="#d7dce0" stroke-dasharray="4 6"></line>
+            <text x="6" y="{{ guide.y + 4 }}" fill="#6d7277" font-size="12">{{ guide.label }}</text>
+          {% endfor %}
+          {% if stock_chart.area_path %}
+            <path d="{{ stock_chart.area_path }}" fill="#1f6f5f" opacity="0.14"></path>
+          {% endif %}
+          <path d="{{ stock_chart.path }}" fill="none" stroke="#1f6f5f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          {% for point in stock_chart.points %}
+            <circle class="chart-tooltip-dot" cx="{{ point.x }}" cy="{{ point.y }}" r="4" fill="#1f6f5f">
+              <title>{{ point.tooltip }}</title>
+            </circle>
+          {% endfor %}
+        </svg>
+      </div>
+      <div class="range-note">
+        <span>Hover chart points for values.</span>
+        <span>Use the date range above to zoom the analysis window.</span>
+      </div>
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Smart insights</p>
+      <h2>Automated signals</h2>
+      <div class="insight-list">
+        {% for insight in insights %}
+          <article class="insight-card info">
+            <h3>Insight</h3>
+            <p>{{ insight }}</p>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="empty-state">
+        Forecast reorder date: {{ overview.reorder_date }}.
+      </div>
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel chart-card">
+      <p class="eyebrow">Consumption</p>
+      <h2>Usage history</h2>
+      <div class="chart-shell">
+        <svg class="chart-svg" viewBox="0 0 {{ usage_chart.width }} {{ usage_chart.height }}" role="img" aria-label="Usage history">
+          {% for guide in usage_chart.guides %}
+            <line x1="42" y1="{{ guide.y }}" x2="{{ usage_chart.width - 42 }}" y2="{{ guide.y }}" stroke="#d7dce0" stroke-dasharray="4 6"></line>
+          {% endfor %}
+          <path d="{{ usage_chart.path }}" fill="none" stroke="#d8822a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          {% for point in usage_chart.points %}
+            <circle class="chart-tooltip-dot" cx="{{ point.x }}" cy="{{ point.y }}" r="4" fill="#d8822a">
+              <title>{{ point.tooltip }}</title>
+            </circle>
+          {% endfor %}
+        </svg>
+      </div>
+    </article>
+
+    <article class="panel chart-card">
+      <p class="eyebrow">Trend line</p>
+      <h2>7-day moving average</h2>
+      <div class="chart-shell">
+        <svg class="chart-svg" viewBox="0 0 {{ moving_chart.width }} {{ moving_chart.height }}" role="img" aria-label="Moving average trend line">
+          {% for guide in moving_chart.guides %}
+            <line x1="42" y1="{{ guide.y }}" x2="{{ moving_chart.width - 42 }}" y2="{{ guide.y }}" stroke="#d7dce0" stroke-dasharray="4 6"></line>
+          {% endfor %}
+          <path d="{{ moving_chart.path }}" fill="none" stroke="#62748a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          {% for point in moving_chart.points %}
+            <circle class="chart-tooltip-dot" cx="{{ point.x }}" cy="{{ point.y }}" r="4" fill="#62748a">
+              <title>{{ point.tooltip }}</title>
+            </circle>
+          {% endfor %}
+        </svg>
+      </div>
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel chart-card">
+      <p class="eyebrow">Comparison</p>
+      <h2>Weekly usage comparison</h2>
+      {% if weekly_chart.bars %}
+        <div class="chart-shell">
+          <svg class="chart-svg" viewBox="0 0 {{ weekly_chart.width }} {{ weekly_chart.height }}" role="img" aria-label="Weekly usage comparison">
+            {% for bar in weekly_chart.bars %}
+              <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="8" fill="#1f6f5f" opacity="0.86"></rect>
+              <text class="bar-label" x="8" y="{{ bar.y + bar.height - 5 }}">{{ bar.label }}</text>
+              <text x="{{ bar.x + bar.width + 8 }}" y="{{ bar.y + bar.height - 5 }}" fill="#6d7277" font-size="12">{{ bar.value_label }}</text>
+            {% endfor %}
+          </svg>
+        </div>
+      {% else %}
+        <div class="empty-state">No weekly comparison is available.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Monthly comparison</p>
+      <h2>Monthly usage</h2>
+      {% if monthly_rows %}
+        <table>
+          <thead><tr><th>Month</th><th>Usage</th></tr></thead>
+          <tbody>
+            {% for row in monthly_rows %}
+              <tr><td>{{ row.month }}</td><td>{{ "%.1f"|format(row.usage_qty) }} {{ item.base_unit }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No monthly history in this range.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel">
+      <p class="eyebrow">Peak days</p>
+      <h2>Highest consumption days</h2>
+      {% if peak_days %}
+        <table>
+          <thead><tr><th>Date</th><th>Usage</th><th>Received</th></tr></thead>
+          <tbody>
+            {% for row in peak_days %}
+              <tr>
+                <td>{{ row.date }}</td>
+                <td>{{ "%.1f"|format(row.usage_qty) }} {{ item.base_unit }}</td>
+                <td>{{ "%.1f"|format(row.replenished_qty) }} {{ item.base_unit }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No peak days to show yet.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Consumption heatmap</p>
+      <h2>Typical weekday demand</h2>
+      <div class="heatmap">
+        {% for cell in heatmap %}
+          <div class="heat-cell" style="--heat: {{ cell.intensity }};">
+            <strong>{{ cell.day }}</strong>
+            <span>{{ "%.1f"|format(cell.value) }} {{ item.base_unit }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="analytics-grid">
+    <article class="panel">
+      <p class="eyebrow">Replenishment</p>
+      <h2>Reorder history</h2>
+      {% if reorder_history %}
+        <table>
+          <thead><tr><th>Date</th><th>Received</th></tr></thead>
+          <tbody>
+            {% for row in reorder_history %}
+              <tr><td>{{ row.date }}</td><td>{{ "%.1f"|format(row.replenished_qty) }} {{ item.base_unit }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No replenishment events in this range.</div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <p class="eyebrow">Waste</p>
+      <h2>Waste history</h2>
+      {% if waste_history %}
+        <table>
+          <thead><tr><th>Date</th><th>Waste</th></tr></thead>
+          <tbody>
+            {% for row in waste_history %}
+              <tr><td>{{ row.date }}</td><td>{{ "%.1f"|format(row.waste_qty) }} {{ item.base_unit }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No waste events in this range.</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-loading-form]").forEach((form) => {
+      form.addEventListener("submit", () => {
+        const button = form.querySelector("button[type='submit']");
+        if (button) button.textContent = "Loading...";
+      });
+    });
+  </script>
+{% endblock %}

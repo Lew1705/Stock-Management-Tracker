@@ -1,4 +1,5 @@
 from stock.services.auth import create_user_account
+from stock.services.items import save_item_record
 
 
 def login(client, username: str, password: str, next_url: str = "/"):
@@ -67,3 +68,27 @@ def test_admin_can_open_user_management_page(client):
 
     assert response.status_code == 200
     assert b"User management" in response.data
+
+
+def test_manager_can_open_analytics_pages(client):
+    create_user_account("manager2", "password123", "manager")
+    login(client, "manager2", "password123")
+    save_item_record(
+        item_id=None,
+        name="Oat Milk",
+        category="Milk",
+        base_unit="each",
+        supplier="Booker",
+        ref="BK-1",
+        cost_per_unit="1.40",
+        par_keele="12",
+        par_little_shop="6",
+    )
+
+    dashboard_response = client.get("/analytics", follow_redirects=False)
+    item_response = client.get("/items/1/analytics", follow_redirects=False)
+
+    assert dashboard_response.status_code == 200
+    assert b"Inventory usage trends" in dashboard_response.data
+    assert item_response.status_code == 200
+    assert b"Oat Milk" in item_response.data
