@@ -1,6 +1,6 @@
 import pytest
 
-from stock.services.items import get_item, list_items, save_item_record
+from stock.services.items import get_base_units, get_item, list_items, save_item_record
 
 
 def test_save_item_record_persists_suppliers_and_par_levels(isolated_db):
@@ -37,3 +37,9 @@ def test_save_item_record_rejects_negative_par_level(isolated_db):
             ref="BK-7",
             par_keele="-1",
         )
+
+
+def test_get_base_units_includes_coffee_retail_bag_sizes():
+    assert "1kg bag" in get_base_units()
+    assert "250g retail bag" in get_base_units()
+    assert "200g retail bag" in get_base_units()
