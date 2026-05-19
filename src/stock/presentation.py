@@ -6,6 +6,8 @@ def active_page_for_path(path: str) -> str:
         return "login"
     if path.startswith("/admin/users"):
         return "admin_users"
+    if path.startswith("/admin/sections"):
+        return "admin_sections"
     if path.startswith("/counts/keele"):
         return "keele_count"
     if path.startswith("/counts/little-shop"):
@@ -118,11 +120,15 @@ def build_request_list_page_context(
     }
 
 
-def build_shopping_list_page_context(location: str, count_date: str, rows: list[dict]) -> dict:
+def build_shopping_list_page_context(location: str, count_date: str, rows: list[dict], custom_items: list[dict] | None = None, shopping_list_id: int | None = None) -> dict:
+    custom_items = custom_items or []
     return {
         "location": location,
         "count_date": count_date,
+        "shopping_list_id": shopping_list_id,
         "grouped_rows": group_rows_by_category(rows),
+        "custom_items": custom_items,
         "total_items": len(rows),
+        "total_custom_items": len(custom_items),
         "total_order_qty": sum(float(row["order_qty"]) for row in rows),
     }

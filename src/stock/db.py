@@ -98,6 +98,14 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
         );
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS sections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            visible_to_staff INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS supplier_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_date TEXT NOT NULL,
@@ -149,6 +157,32 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS ix_supplier_invoices_order
         ON supplier_invoices(order_id, uploaded_at DESC);
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shopping_lists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id INTEGER NOT NULL,
+            count_date TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(location_id, count_date),
+            FOREIGN KEY(location_id) REFERENCES locations(id)
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shopping_list_custom_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shopping_list_id INTEGER NOT NULL,
+            item_name TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            created_by INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(shopping_list_id) REFERENCES shopping_lists(id) ON DELETE CASCADE,
+            FOREIGN KEY(created_by) REFERENCES users(id)
+        );
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_shopping_list_custom_items_list
+        ON shopping_list_custom_items(shopping_list_id, created_at, id);
+    """)
 
     # Backfill the new link table from older single-supplier rows.
     conn.execute("""
@@ -174,6 +208,71 @@ def _run_schema_migrations(conn: sqlite3.Connection) -> None:
         )
         WHERE cost_per_unit_at_time IS NULL OR cost_per_unit_at_time = 0;
     """)
+    _sync_sections_from_item_categories(conn)
+
+
+def _sync_sections_from_item_categories(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        INSERT OR IGNORE INTO sections (name, visible_to_staff)
+        SELECT DISTINCT category, 1
+        FROM items
+        WHERE TRIM(category) != '';
+    """)
+
+
+def sync_sections_from_item_categories() -> None:
+    with get_conn() as conn:
+        _sync_sections_from_item_categories(conn)
+
+
+def list_sections():
+    sync_sections_from_item_categories()
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, name, visible_to_staff, created_at
+            FROM sections
+            ORDER BY LOWER(name);
+            """
+        ).fetchall()
+
+
+def get_staff_visible_sections() -> list[str]:
+    sync_sections_from_item_categories()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT name
+            FROM sections
+            WHERE visible_to_staff = 1
+            ORDER BY LOWER(name);
+            """
+        ).fetchall()
+    return [str(row["name"]) for row in rows]
+
+
+def update_section_visibility(section_id: int, visible_to_staff: bool) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE sections
+            SET visible_to_staff = ?
+            WHERE id = ?;
+            """,
+            (1 if visible_to_staff else 0, int(section_id)),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"Section {section_id} was not found.")
+
+
+def _category_filter_clause(visible_categories: list[str] | tuple[str, ...] | set[str] | None) -> tuple[str, tuple[str, ...]]:
+    if visible_categories is None:
+        return "", ()
+    categories = tuple(sorted({str(category) for category in visible_categories}))
+    if not categories:
+        return " AND 1 = 0", ()
+    placeholders = ", ".join("?" for _ in categories)
+    return f" AND i.category IN ({placeholders})", categories
 
 
 def _split_multi_value(raw_value: str) -> list[str]:
@@ -411,10 +510,11 @@ def list_items():
     conn.close()
 
 
-def get_items_with_suppliers():
+def get_items_with_suppliers(visible_categories: list[str] | tuple[str, ...] | set[str] | None = None):
+    category_filter, category_params = _category_filter_clause(visible_categories)
     with get_conn() as conn:
         return conn.execute(
-            """
+            f"""
             SELECT
                 i.id,
                 i.name,
@@ -434,14 +534,17 @@ def get_items_with_suppliers():
             FROM items i
             LEFT JOIN item_suppliers isp ON isp.item_id = i.id
             LEFT JOIN suppliers s ON s.id = isp.supplier_id
+            WHERE 1 = 1 {category_filter}
             GROUP BY i.id, i.name, i.category, i.base_unit, i.cost_per_unit
             ORDER BY LOWER(i.category), LOWER(i.name);
-            """
+            """,
+            category_params,
         ).fetchall()
 
 
-def get_count_entry_rows(location: str, count_date: str):
+def get_count_entry_rows(location: str, count_date: str, visible_categories: list[str] | tuple[str, ...] | set[str] | None = None):
     location_id = get_location_id(location)
+    category_filter, category_params = _category_filter_clause(visible_categories)
 
     with get_conn() as conn:
         count_row = conn.execute(
@@ -459,7 +562,7 @@ def get_count_entry_rows(location: str, count_date: str):
         is_reconciled = bool(count_row["is_reconciled"]) if count_row else False
 
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 i.id,
                 i.name,
@@ -470,9 +573,10 @@ def get_count_entry_rows(location: str, count_date: str):
             LEFT JOIN stock_count_lines scl
                 ON scl.item_id = i.id
                AND scl.count_id = ?
+            WHERE 1 = 1 {category_filter}
             ORDER BY LOWER(i.category), LOWER(i.name);
             """,
-            (count_id,),
+            (count_id, *category_params),
         ).fetchall()
 
     result = []
@@ -565,13 +669,14 @@ def save_web_count(location: str, count_date: str, count_values: dict[int, str])
     return count_id
 
 
-def generate_shopping_list(location_name: str, as_of_date: str):
+def generate_shopping_list(location_name: str, as_of_date: str, visible_categories: list[str] | tuple[str, ...] | set[str] | None = None):
     init_db()
     location_id = get_location_id(location_name)
+    category_filter, category_params = _category_filter_clause(visible_categories)
 
     with get_conn() as conn:
         par_rows = conn.execute(
-            """
+            f"""
             SELECT
                 i.id AS item_id,
                 i.name,
@@ -581,10 +686,10 @@ def generate_shopping_list(location_name: str, as_of_date: str):
                 p.par_qty_base
             FROM par_levels p
             JOIN items i ON i.id = p.item_id
-            WHERE p.location_id = ?
+            WHERE p.location_id = ? {category_filter}
             ORDER BY LOWER(i.category), LOWER(i.name);
             """,
-            (location_id,),
+            (location_id, *category_params),
         ).fetchall()
 
     results = []
@@ -613,13 +718,14 @@ def generate_shopping_list(location_name: str, as_of_date: str):
     return results
 
 
-def generate_request_list(location_name: str, as_of_date: str, source_location_name: str = "Keele"):
+def generate_request_list(location_name: str, as_of_date: str, source_location_name: str = "Keele", visible_categories: list[str] | tuple[str, ...] | set[str] | None = None):
     init_db()
     location_id = get_location_id(location_name)
+    category_filter, category_params = _category_filter_clause(visible_categories)
 
     with get_conn() as conn:
         par_rows = conn.execute(
-            """
+            f"""
             SELECT
                 i.id AS item_id,
                 i.name,
@@ -629,10 +735,10 @@ def generate_request_list(location_name: str, as_of_date: str, source_location_n
                 p.par_qty_base
             FROM par_levels p
             JOIN items i ON i.id = p.item_id
-            WHERE p.location_id = ?
+            WHERE p.location_id = ? {category_filter}
             ORDER BY LOWER(i.category), LOWER(i.name);
             """,
-            (location_id,),
+            (location_id, *category_params),
         ).fetchall()
 
     results = []
@@ -672,14 +778,20 @@ def generate_request_list(location_name: str, as_of_date: str, source_location_n
     return results
 
 
-def generate_supplier_shopping_list(as_of_date: str, source_location_name: str = "Keele", request_location_name: str = "Little Shop"):
+def generate_supplier_shopping_list(
+    as_of_date: str,
+    source_location_name: str = "Keele",
+    request_location_name: str = "Little Shop",
+    visible_categories: list[str] | tuple[str, ...] | set[str] | None = None,
+):
     init_db()
     source_location_id = get_location_id(source_location_name)
     request_location_id = get_location_id(request_location_name)
+    category_filter, category_params = _category_filter_clause(visible_categories)
 
     with get_conn() as conn:
         source_par_rows = conn.execute(
-            """
+            f"""
             SELECT
                 i.id AS item_id,
                 i.name,
@@ -688,10 +800,10 @@ def generate_supplier_shopping_list(as_of_date: str, source_location_name: str =
                 p.par_qty_base
             FROM par_levels p
             JOIN items i ON i.id = p.item_id
-            WHERE p.location_id = ?
+            WHERE p.location_id = ? {category_filter}
             ORDER BY LOWER(i.category), LOWER(i.name);
             """,
-            (source_location_id,),
+            (source_location_id, *category_params),
         ).fetchall()
 
         request_par_map = {
@@ -741,6 +853,102 @@ def generate_supplier_shopping_list(as_of_date: str, source_location_name: str =
         )
 
     return results
+
+
+def get_or_create_shopping_list(location_name: str, count_date: str) -> int:
+    init_db()
+    location_id = get_location_id(location_name)
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO shopping_lists (location_id, count_date)
+            VALUES (?, ?)
+            ON CONFLICT(location_id, count_date) DO NOTHING;
+            """,
+            (location_id, count_date),
+        )
+        row = conn.execute(
+            """
+            SELECT id
+            FROM shopping_lists
+            WHERE location_id = ? AND count_date = ?;
+            """,
+            (location_id, count_date),
+        ).fetchone()
+    if row is None:
+        raise ValueError("Shopping list could not be created.")
+    return int(row["id"])
+
+
+def list_shopping_list_custom_items(shopping_list_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT sli.id,
+                   sli.shopping_list_id,
+                   sli.item_name,
+                   sli.quantity,
+                   sli.created_by,
+                   sli.created_at,
+                   u.username AS created_by_username
+            FROM shopping_list_custom_items sli
+            LEFT JOIN users u ON u.id = sli.created_by
+            WHERE sli.shopping_list_id = ?
+            ORDER BY datetime(sli.created_at), sli.id;
+            """,
+            (int(shopping_list_id),),
+        ).fetchall()
+
+
+def get_shopping_list_custom_item(custom_item_id: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, shopping_list_id, item_name, quantity, created_by, created_at
+            FROM shopping_list_custom_items
+            WHERE id = ?;
+            """,
+            (int(custom_item_id),),
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Custom request {custom_item_id} was not found.")
+    return row
+
+
+def create_shopping_list_custom_item(shopping_list_id: int, item_name: str, quantity: str, created_by: int | None) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO shopping_list_custom_items (shopping_list_id, item_name, quantity, created_by)
+            VALUES (?, ?, ?, ?);
+            """,
+            (int(shopping_list_id), item_name, quantity, created_by),
+        )
+        return int(cur.lastrowid)
+
+
+def update_shopping_list_custom_item(custom_item_id: int, item_name: str, quantity: str) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE shopping_list_custom_items
+            SET item_name = ?, quantity = ?
+            WHERE id = ?;
+            """,
+            (item_name, quantity, int(custom_item_id)),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"Custom request {custom_item_id} was not found.")
+
+
+def delete_shopping_list_custom_item(custom_item_id: int) -> None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM shopping_list_custom_items WHERE id = ?;",
+            (int(custom_item_id),),
+        )
+        if cur.rowcount <= 0:
+            raise ValueError(f"Custom request {custom_item_id} was not found.")
 
 
 def get_item_for_edit(item_id: int):
@@ -828,6 +1036,10 @@ def save_item(
     with get_conn() as conn:
         cur = conn.cursor()
         try:
+            cur.execute(
+                "INSERT OR IGNORE INTO sections (name, visible_to_staff) VALUES (?, 1);",
+                (normalized_category,),
+            )
             if item_id is None:
                 cur.execute(
                     """
@@ -2893,7 +3105,7 @@ def get_request_lines(request_id: int):
 def get_item_by_id(item_id: int):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, base_unit, cost_per_unit FROM items WHERE id = ?;",
+            "SELECT id, name, category, base_unit, cost_per_unit FROM items WHERE id = ?;",
             (item_id,),
         ).fetchone()
     if row is None:
@@ -3030,6 +3242,10 @@ def import_items_and_par_levels(csv_path):
             except ValueError as exc:
                 raise ValueError(f"Line {line_no}: {exc} for '{name}'") from exc
 
+            cur.execute(
+                "INSERT OR IGNORE INTO sections (name, visible_to_staff) VALUES (?, 1);",
+                (category,),
+            )
             cur.execute("""
                 INSERT INTO items (name, category, base_unit, cost_per_unit, supplier_id)
                 VALUES (?, ?, ?, ?, ?)

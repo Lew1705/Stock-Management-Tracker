@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Sections | Stock Tracker{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Admin only</p>
+    <h2>Section visibility</h2>
+    <p>Choose which stock sections staff accounts can see across counts, requests, shopping lists, and API snapshots.</p>
+  </section>
+
+  <section class="panel">
+    {% if error_message %}
+      <div class="error-box">{{ error_message }}</div>
+    {% endif %}
+    {% if success_message %}
+      <div class="success-box">{{ success_message }}</div>
+    {% endif %}
+
+    <p class="eyebrow">Staff access</p>
+    <h2>Visible sections</h2>
+
+    {% if section_rows %}
+      <div class="category-list">
+        {% for row in section_rows %}
+          <article class="category-card">
+            <h3 style="margin:0 0 6px;">{{ row["name"] }}</h3>
+            <p class="eyebrow">
+              {% if row["visible_to_staff"] %}
+                Visible to staff
+              {% else %}
+                Admin and managers only
+              {% endif %}
+            </p>
+
+            <form method="post" action="/admin/sections/{{ row['id'] }}/visibility" class="form-grid">
+              <label>
+                Staff can view this section
+                <select name="visible_to_staff">
+                  <option value="1" {% if row["visible_to_staff"] %}selected{% endif %}>Enabled</option>
+                  <option value="0" {% if not row["visible_to_staff"] %}selected{% endif %}>Disabled</option>
+                </select>
+              </label>
+              <button type="submit">Save visibility</button>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">No sections exist yet. Add inventory items first, then come back to manage staff visibility.</div>
+    {% endif %}
+  </section>
+{% endblock %}

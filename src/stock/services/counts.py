@@ -1,5 +1,5 @@
 from .dashboard import today_iso
-from ..db import get_count_entry_rows, get_saved_count_summary, save_web_count
+from ..db import get_count_entry_rows, get_item_by_id, get_saved_count_summary, save_web_count
 
 COUNT_LOCATIONS = ("Keele", "Little Shop")
 
@@ -9,10 +9,10 @@ def normalize_count_location(location: str) -> str:
     return cleaned if cleaned in COUNT_LOCATIONS else "Keele"
 
 
-def build_count_data(location: str, count_date: str | None = None) -> dict:
+def build_count_data(location: str, count_date: str | None = None, visible_categories=None) -> dict:
     normalized_location = normalize_count_location(location)
     normalized_date = (count_date or today_iso()).strip() or today_iso()
-    count_data = get_count_entry_rows(normalized_location, normalized_date)
+    count_data = get_count_entry_rows(normalized_location, normalized_date, visible_categories=visible_categories)
     return {
         "location": normalized_location,
         "count_date": normalized_date,
@@ -20,9 +20,17 @@ def build_count_data(location: str, count_date: str | None = None) -> dict:
     }
 
 
-def save_count_data(location: str, count_date: str, count_values: dict[int, str]) -> int:
+def save_count_data(location: str, count_date: str, count_values: dict[int, str], visible_categories=None) -> int:
     normalized_location = normalize_count_location(location)
     normalized_date = (count_date or today_iso()).strip() or today_iso()
+    if visible_categories is not None:
+        allowed_categories = {str(category) for category in visible_categories}
+        for item_id, raw_value in count_values.items():
+            if str(raw_value or "").strip() == "":
+                continue
+            item = get_item_by_id(item_id)
+            if str(item["category"]) not in allowed_categories:
+                raise ValueError("Your account cannot update that section.")
     return save_web_count(normalized_location, normalized_date, count_values)
 
 

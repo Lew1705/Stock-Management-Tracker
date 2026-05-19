@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS items (
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
 
+CREATE TABLE IF NOT EXISTS sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    visible_to_staff INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 /*just need to add category and base units that only accept certain things to the items table now */    
 
 
@@ -198,4 +205,27 @@ CREATE TABLE IF NOT EXISTS supplier_invoices (
 
 CREATE INDEX IF NOT EXISTS ix_supplier_invoices_order
 ON supplier_invoices(order_id, uploaded_at DESC);
+
+CREATE TABLE IF NOT EXISTS shopping_lists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id INTEGER NOT NULL,
+    count_date TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(location_id, count_date),
+    FOREIGN KEY(location_id) REFERENCES locations(id)
+);
+
+CREATE TABLE IF NOT EXISTS shopping_list_custom_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shopping_list_id INTEGER NOT NULL,
+    item_name TEXT NOT NULL,
+    quantity TEXT NOT NULL,
+    created_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(shopping_list_id) REFERENCES shopping_lists(id) ON DELETE CASCADE,
+    FOREIGN KEY(created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_shopping_list_custom_items_list
+ON shopping_list_custom_items(shopping_list_id, created_at, id);
 

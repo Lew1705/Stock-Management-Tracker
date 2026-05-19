@@ -26,6 +26,10 @@
       <div class="metric-value">{{ total_items }}</div>
     </article>
     <article class="metric">
+      <div class="metric-label">Custom requests</div>
+      <div class="metric-value">{{ total_custom_items }}</div>
+    </article>
+    <article class="metric">
       <div class="metric-label">Total shortfall</div>
       <div class="metric-value" style="font-size: 1.35rem;">{{ '%.2f'|format(total_order_qty) }}</div>
     </article>
@@ -48,6 +52,10 @@
   <section class="panel">
     <p class="eyebrow">Generated from saved counts and par levels</p>
     <h2>Supplier shopping list</h2>
+
+    {% if request.args.get("error") %}
+      <div class="error-box">{{ request.args.get("error") }}</div>
+    {% endif %}
 
     <div class="actions-row" style="margin-top:0;">
       <a class="button-link" href="/counts/keele?date={{ count_date }}">Back to Keele count</a>
@@ -74,6 +82,7 @@
                   <th>Order</th>
                   <th>Unit</th>
                   <th>Suppliers</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,6 +95,7 @@
                     <td><strong>{{ '%.2f'|format(row["order_qty"]) }}</strong></td>
                     <td>{{ row["base_unit"] }}</td>
                     <td>{{ row["supplier"] or "Not set yet" }}</td>
+                    <td><span class="source-badge">Generated</span></td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -97,6 +107,65 @@
       <div class="empty-state">
         Nothing needs ordering for Keele on this date, or the saved counts are missing.
       </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Manual additions</p>
+    <h2>Custom requests</h2>
+
+    <form method="post" action="/shopping-lists/custom-items" class="form-grid">
+      <input type="hidden" name="count_date" value="{{ count_date }}">
+      <label for="item_name">
+        Item name
+        <input id="item_name" name="item_name" type="text" required>
+      </label>
+      <label for="quantity">
+        Quantity or amount
+        <input id="quantity" name="quantity" type="text" required>
+      </label>
+      <button type="submit">Add custom request</button>
+    </form>
+
+    {% if custom_items %}
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Quantity</th>
+            <th>Source</th>
+            <th>Update</th>
+            <th>Delete</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in custom_items %}
+            <tr>
+              <td>
+                <form id="custom-item-{{ row['id'] }}" method="post" action="/shopping-lists/custom-items/{{ row['id'] }}" class="form-grid" style="margin-top:0;">
+                  <input type="hidden" name="count_date" value="{{ count_date }}">
+                  <input name="item_name" type="text" value="{{ row['item_name'] }}" required>
+                </form>
+              </td>
+              <td>
+                <input form="custom-item-{{ row['id'] }}" name="quantity" type="text" value="{{ row['quantity'] }}" required>
+              </td>
+              <td><span class="source-badge">Custom</span></td>
+              <td>
+                <button form="custom-item-{{ row['id'] }}" type="submit">Save</button>
+              </td>
+              <td>
+                <form method="post" action="/shopping-lists/custom-items/{{ row['id'] }}/delete" style="margin:0;">
+                  <input type="hidden" name="count_date" value="{{ count_date }}">
+                  <button type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No custom requests have been added for this date.</div>
     {% endif %}
   </section>
 {% endblock %}

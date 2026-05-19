@@ -9,8 +9,8 @@ from ..db import (
 )
 
 
-def list_items():
-    return get_items_with_suppliers()
+def list_items(visible_categories=None):
+    return get_items_with_suppliers(visible_categories=visible_categories)
 
 
 def get_item(item_id: int) -> dict:

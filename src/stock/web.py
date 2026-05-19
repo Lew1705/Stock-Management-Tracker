@@ -58,8 +58,15 @@ from .services.orders import (
     mark_order_received,
     update_order_draft_lines,
 )
-from .services.planning import get_request_list_data, get_shopping_list_data
+from .services.planning import (
+    add_custom_shopping_list_item,
+    edit_custom_shopping_list_item,
+    get_request_list_data,
+    get_shopping_list_data,
+    remove_custom_shopping_list_item,
+)
 from .services.reporting import build_operations_history_context
+from .services.sections import list_section_settings, save_section_visibility, visible_categories_for_user
 from .services.transfers import (
     cancel_transfer,
     confirm_transfer_by_request,
@@ -183,7 +190,7 @@ def counts():
 
 
 def _render_count_screen(location: str, *, count_date: str | None = None, success_message: str = "", error_message: str = "", form_values: dict[int, str] | None = None, status_code: int = 200):
-    count_data = build_count_data(location, count_date)
+    count_data = build_count_data(location, count_date, visible_categories=visible_categories_for_user(get_current_user()))
     hydrated_rows = []
     value_lookup = form_values or {}
     for row in count_data["rows"]:
@@ -242,7 +249,7 @@ def save_count():
 
     route_name = "keele_count" if location == "Keele" else "little_shop_count"
     try:
-        save_count_data(location, count_date, count_values)
+        save_count_data(location, count_date, count_values, visible_categories=visible_categories_for_user(get_current_user()))
         return redirect(url_for(route_name, date=count_date, saved="1"))
     except ValueError as exc:
         return _render_count_screen(
@@ -257,21 +264,65 @@ def save_count():
 @app.get("/shopping-lists")
 @role_required("manager", "admin")
 def shopping_lists():
-    shopping_data = get_shopping_list_data(request.args.get("date"))
+    shopping_data = get_shopping_list_data(request.args.get("date"), visible_categories=visible_categories_for_user(get_current_user()))
     return render_template(
         "shopping_list.html",
         **build_shopping_list_page_context(
             shopping_data["location"],
             shopping_data["count_date"],
             shopping_data["rows"],
+            shopping_data["custom_items"],
+            shopping_data["shopping_list_id"],
         ),
     )
+
+
+@app.post("/shopping-lists/custom-items")
+@role_required("manager", "admin")
+def shopping_list_custom_create():
+    count_date = request.form.get("count_date", today_iso()).strip() or today_iso()
+    try:
+        add_custom_shopping_list_item(
+            count_date,
+            request.form.get("item_name", ""),
+            request.form.get("quantity", ""),
+            int(get_current_user().id) if get_current_user().id else None,
+        )
+        return redirect(url_for("shopping_lists", date=count_date))
+    except ValueError as exc:
+        return redirect(url_for("shopping_lists", date=count_date, error=str(exc)))
+
+
+@app.post("/shopping-lists/custom-items/<int:custom_item_id>")
+@role_required("manager", "admin")
+def shopping_list_custom_update(custom_item_id: int):
+    count_date = request.form.get("count_date", today_iso()).strip() or today_iso()
+    try:
+        edit_custom_shopping_list_item(
+            custom_item_id,
+            request.form.get("item_name", ""),
+            request.form.get("quantity", ""),
+        )
+        return redirect(url_for("shopping_lists", date=count_date))
+    except ValueError as exc:
+        return redirect(url_for("shopping_lists", date=count_date, error=str(exc)))
+
+
+@app.post("/shopping-lists/custom-items/<int:custom_item_id>/delete")
+@role_required("manager", "admin")
+def shopping_list_custom_delete(custom_item_id: int):
+    count_date = request.form.get("count_date", today_iso()).strip() or today_iso()
+    try:
+        remove_custom_shopping_list_item(custom_item_id)
+        return redirect(url_for("shopping_lists", date=count_date))
+    except ValueError as exc:
+        return redirect(url_for("shopping_lists", date=count_date, error=str(exc)))
 
 
 @app.get("/request-lists")
 @login_required
 def request_lists():
-    request_data = get_request_list_data(request.args.get("date"))
+    request_data = get_request_list_data(request.args.get("date"), visible_categories=visible_categories_for_user(get_current_user()))
     request_id = request.args.get("request_id", type=int)
     moved_qty = request.args.get("moved_qty", type=float)
     moved_lines = request.args.get("moved_lines", type=int)
@@ -780,6 +831,28 @@ def admin_users_password(user_id: int):
         return redirect(url_for("admin_users", success="Password reset."))
     except ValueError as exc:
         return redirect(url_for("admin_users", error=str(exc)))
+
+
+@app.get("/admin/sections")
+@role_required("admin")
+def admin_sections():
+    return render_template(
+        "admin_sections.html",
+        section_rows=list_section_settings(),
+        success_message=request.args.get("success", "").strip(),
+        error_message=request.args.get("error", "").strip(),
+    )
+
+
+@app.post("/admin/sections/<int:section_id>/visibility")
+@role_required("admin")
+def admin_section_visibility(section_id: int):
+    visible_to_staff = request.form.get("visible_to_staff") == "1"
+    try:
+        save_section_visibility(section_id, visible_to_staff)
+        return redirect(url_for("admin_sections", success="Section visibility updated."))
+    except ValueError as exc:
+        return redirect(url_for("admin_sections", error=str(exc)))
 
 
 @app.post("/run-day")
