@@ -2622,7 +2622,7 @@ def generate_supplier_order(request_location_name="Little Shop", source_location
 
 def create_supplier_order(order_date: str, note: str = "") -> int:
     init_db()
-    rows = generate_supplier_order()
+    rows = generate_supplier_shopping_list(order_date)
     with get_conn() as conn:
         cur = conn.execute(
             """
@@ -2650,7 +2650,7 @@ def create_supplier_order(order_date: str, note: str = "") -> int:
                     order_id,
                     int(row["item_id"]),
                     str(row["supplier"] or "Unknown"),
-                    float(row["supplier_order_qty"] or 0.0),
+                    float(row["order_qty"] or 0.0),
                     float(get_item_cost_per_unit(int(row["item_id"]))),
                 ),
             )
